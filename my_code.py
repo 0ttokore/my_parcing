@@ -32,16 +32,30 @@ def instance_initialization(input_file, effective_filter, output_file):
 
     tree = ET.ElementTree(output_root)
     tree.write(output_file, encoding='utf-8', xml_declaration=True)
-    
-    return sorted_instances
-    
-
-def get_class_id(input_file):
-    tree = ET.parse(input_file)
     root = tree.getroot()
     
+    return root
+    
+
+def get_class_id(root):
     self_values = [self_id.text for self_id in root.findall(".//Int_Class_ID") if self_id.text is not None]
     return self_values
+
+
+def get_shell(root, effective_filter):
+    ref = [
+        ciref.find("ComponentInstanceRef").text for ciref in root.findall(".//ComponentInstanceReference")
+        if (ciref.find("Silicon") is None or any(effective_filter in s.text for s in ciref.findall("Silicon"))) and
+        (ciref.find("ComponentInstanceRef") is not None)
+    ]
+    
+    shell = [
+        inst.find("ParameterMap") for inst in root.findall(".//Instance") 
+        if (inst.find("Int_Class_ID") is not None and
+            inst.find("Int_Class_ID").text in ref) and
+            inst.find("ParameterMap") is not None
+    ]
+    return shell
 
 
 def main():
@@ -54,10 +68,11 @@ def main():
         data = open_lookup_file(Iproot)
         output_file = './output.xml'
         
-        instances = instance_initialization(input_file, filter, output_file)
+        instances_root = instance_initialization(input_file, filter, output_file)
         
-        ids = get_class_id(output_file)
-        print(ids)
+        ids = get_class_id(instances_root)
+        
+        shell = get_shell(instances_root, filter)
             
 
     except Exception as e:
