@@ -1,12 +1,12 @@
 import xml.etree.ElementTree as ET
 import logging
-from instance2 import open_lookup_file, find_filter
+from instance2 import open_lookup_file, find_filter, make_key
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def instance_initialization(input_file, effective_filter, output_file):
+def instance_initialization(input_file, effective_filter, output_file='./instance.xml'):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
@@ -34,7 +34,7 @@ def instance_initialization(input_file, effective_filter, output_file):
     tree.write(output_file, encoding='utf-8', xml_declaration=True)
     root = tree.getroot()
     
-    return root
+    return sorted_instances, root
     
 
 def get_class_id(root):
@@ -58,6 +58,18 @@ def get_shell(root, effective_filter):
     return shell
 
 
+def spec_name():
+    pass
+
+
+def get_fileref(instances):
+    fileref = [(inst, make_key(inst.find(".//VLNV"))) for inst in instances if inst.find(".//VLNV") is not None]
+    with open("fileref.txt", "w", encoding="utf-8") as f:
+                for inst, key in fileref:
+                    f.write(f"{inst}, {key}\n")
+    return fileref
+
+
 def main():
     try:
         Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
@@ -66,14 +78,16 @@ def main():
         input_file = "./instance_sheet_TC49x.xml"
         filter = find_filter(input_file='C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml',filter = filter)
         data = open_lookup_file(Iproot)
-        output_file = './output.xml'
+        output_file = './instance.xml'
         
-        instances_root = instance_initialization(input_file, filter, output_file)
-        
+        instances, instances_root = instance_initialization(input_file, filter, output_file)
         ids = get_class_id(instances_root)
         
         shell = get_shell(instances_root, filter)
-            
+        fileref = get_fileref(instances)
+
+        specname = spec_name()
+        
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
