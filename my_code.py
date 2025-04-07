@@ -1,0 +1,55 @@
+import xml.etree.ElementTree as ET
+import logging
+from instance2 import open_lookup_file, find_filter
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def instance_initialization(input_file, filter):
+    tree = ET.parse(input_file)
+    root = tree.getroot()
+
+    return [
+        inst
+        for inst in root.findall(".//Instance")
+        if inst.find("Silicon") is None
+        or any(filter in s.text for s in inst.findall("Silicon"))
+        if (
+            inst.attrib.get("type") == "VirtualInstance"
+            or inst.attrib.get("xsi:type") == "VirtualInstance"
+            or inst.attrib.get("type") == "ComponentInstance"
+            or inst.attrib.get("xsi:type") == "ComponentInstance"
+        )
+    ]
+
+
+def main():
+    try:
+        Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
+        filter = None
+        filter_params = ['audience', 'platform', 'product', 'package', 'props', 'otherprops']
+        input_file = "./instance_sheet_TC49x.xml"
+        filter = find_filter(input_file='C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml',filter = filter)
+        data = open_lookup_file(Iproot)
+        
+        
+        instances = instance_initialization(input_file, filter)
+        
+        output_root = ET.Element("Instances")
+        for inst in instances:
+            output_root.append(inst)
+
+        output_file = './output.xml'
+
+        tree = ET.ElementTree(output_root)
+        tree.write(output_file, encoding='utf-8', xml_declaration=True)
+            
+
+    except Exception as e:
+        logger.error(f"Conversion failed: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()
