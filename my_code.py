@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def instance_initialization(input_file, effective_filter):
+def instance_initialization(input_file, effective_filter, output_file):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
@@ -25,8 +25,23 @@ def instance_initialization(input_file, effective_filter):
         (inst.find('ConceptName').text if inst.find('ConceptName') is not None else ''),
         (inst.find('DesignName').text if inst.find('DesignName') is not None else '')
     ))
+    
+    output_root = ET.Element('Instances')
+    for inst in sorted_instances:
+        output_root.append(inst)
 
+    tree = ET.ElementTree(output_root)
+    tree.write(output_file, encoding='utf-8', xml_declaration=True)
+    
     return sorted_instances
+    
+
+def get_class_id(input_file):
+    tree = ET.parse(input_file)
+    root = tree.getroot()
+    
+    self_values = [self_id.text for self_id in root.findall(".//Int_Class_ID") if self_id.text is not None]
+    return self_values
 
 
 def main():
@@ -39,14 +54,10 @@ def main():
         data = open_lookup_file(Iproot)
         output_file = './output.xml'
         
-        instances = instance_initialization(input_file, filter)
+        instances = instance_initialization(input_file, filter, output_file)
         
-        output_root = ET.Element('Instances')
-        for inst in instances:
-            output_root.append(inst)
-
-        tree = ET.ElementTree(output_root)
-        tree.write(output_file, encoding='utf-8', xml_declaration=True)
+        ids = get_class_id(output_file)
+        print(ids)
             
 
     except Exception as e:
