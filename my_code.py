@@ -14,6 +14,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def instance(root, instances, extracolumns):
+    instance = ET.Element("Instance")
+
+    for attr in ["type", "xsi:type"]:
+        if attr in root[0].attrib:
+            instance.set(attr, root[0].attrib[attr])
+
+    instance.set("InstanceName", spec_name())
+    instance.set("Essence", get_fileref(instances))
+
+    for ip in root.findall("InstanceProperty"):
+        name = ip.find("Name").text
+        value = ip.find("Value").text
+
+        if f"|{name}|" in extracolumns:
+            instance.set(name, value)
+    return instance
+
+
 def main():
     try:
         Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
@@ -40,9 +59,18 @@ def main():
         ids = get_class_id(instances_root)
 
         shell = get_shell(instances_root, filter)
-        fileref = get_fileref(instances)
 
-        specname = spec_name()
+        extracolumns = "|SpiritClass|"
+        result = instance(instances_root, instances, extracolumns)
+
+        # output_root = ET.Element("Instances")
+        # for inst in result:
+        #     output_root.append(inst)
+
+        # tree = ET.ElementTree(output_root)
+        # tree.write("1.xml", encoding="utf-8", xml_declaration=True)
+
+        # print(result.attrib)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")

@@ -395,15 +395,15 @@ def get_shell(root, effective_filter):
 
 
 def spec_name():
-    pass
+    return ""
 
 
 def get_fileref(instances):
-    fileref = [(inst, make_key(inst.find(".//VLNV"))) for inst in instances if inst.find(".//VLNV") is not None]
-    with open("fileref.txt", "w", encoding="utf-8") as f:
-                for inst, key in fileref:
-                    f.write(f"{inst}, {key}\n")
-    return fileref
+    return [make_key(inst.find(".//VLNV")) for inst in instances if inst.find(".//VLNV") is not None]
+    # with open("fileref.txt", "w", encoding="utf-8") as f:
+    #             for key in fileref:
+    #                 f.write(f"{key}\n")
+    # return fileref
 
 
 def main():
