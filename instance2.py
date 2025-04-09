@@ -12,105 +12,116 @@ from xml.dom.minidom import parseString
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def find_filter(input_file: str,  filter : str ) -> str:
+
+def find_filter(input_file: str, filter: str) -> str:
     if filter:
         return filter
-    
+
     tree = ET.parse(input_file)
     root = tree.getroot()
-    default_silicon = root.find('.//DefaultSilicon')
-    
-    return default_silicon.text if default_silicon is not None else ''
+    default_silicon = root.find(".//DefaultSilicon")
 
-def clean_filename(filename : str) -> str:
-    cleaned = filename.replace('\\', '/')
-    cleaned = re.sub(r'^file:/+(\D:)', r'\1', cleaned)
-    cleaned = re.sub(r'^file:/+', '//', cleaned)
-    
+    return default_silicon.text if default_silicon is not None else ""
+
+
+def clean_filename(filename: str) -> str:
+    cleaned = filename.replace("\\", "/")
+    cleaned = re.sub(r"^file:/+(\D:)", r"\1", cleaned)
+    cleaned = re.sub(r"^file:/+", "//", cleaned)
+
     return cleaned
 
+
 def stuff_digits(version: str) -> str:
-    version = re.sub(r'\.(\d)(\.|$)', r'.0\1\2', version)
-    version = re.sub(r'(\.|V)(\d)(\.|$)', r'\1 0\2\3', version)
+    version = re.sub(r"\.(\d)(\.|$)", r".0\1\2", version)
+    version = re.sub(r"(\.|V)(\d)(\.|$)", r"\1 0\2\3", version)
     return version
+
 
 def open_lookup_file(Iproot: str) -> str:
     if not os.path.exists(Iproot):
         print(f"Cannot open file: {Iproot}")
-        return pd.DataFrame() 
+        return pd.DataFrame()
     try:
         tree = ET.parse(Iproot)
         root = tree.getroot()
-        namespace = {'': 'http://www.infineon.com/RelMgrLookup'}
+        namespace = {"": "http://www.infineon.com/RelMgrLookup"}
         data = []
-        for path in root.findall('.//path', namespace):
+        for path in root.findall(".//path", namespace):
             version = path.get("Version", "")
             locked = path.get("Locked", "")
             release = path.get("Release", "")
             p_type = path.get("type", "")
-
 
             for file_elem in path.findall("file", namespace):
                 file_path = file_elem.text.strip() if file_elem.text else ""
                 key = file_elem.get("key", "")
                 level = file_elem.get("level", "")
 
-                data.append({
-                    "path": file_path,
-                    "release": release,
-                    "locked": locked,
-                    "version": version,
-                    "level": level,
-                    "key": key,
-                    "type": p_type
-                })
-        df = pd.DataFrame(data, columns=["path", "release", "locked", "version", "level", "key",'type'])
-        return df    
+                data.append(
+                    {
+                        "path": file_path,
+                        "release": release,
+                        "locked": locked,
+                        "version": version,
+                        "level": level,
+                        "key": key,
+                        "type": p_type,
+                    }
+                )
+        df = pd.DataFrame(
+            data,
+            columns=["path", "release", "locked", "version", "level", "key", "type"],
+        )
+        return df
     except ET.ParseError as e:
         print(f"Error parsing XML file {Iproot}: {e}")
         return pd.DataFrame()
-    
+
+
 def process_df(drive, disc, df):
-    df["path"] = df["path"].str.replace('/', '\\')
+    df["path"] = df["path"].str.replace("/", "\\")
     df["path"] = df["path"].str.replace(drive, disc)
     df_sorted = df.sort_values(by=["level", "version"], ascending=[True, False])
     df_grouped = df_sorted.groupby(["key", "level"]).head(1).reset_index(drop=True)
     df_grouped["version"] = df_grouped["version"].apply(stuff_digits)
     return df_grouped
 
+
 def resolve_path(key, subdir, Iproot, filter) -> list:
-    if not key.endswith('.xml'):
-        key2 = key.replace(':', '_') + '.xml'
-    key2 = key2.rstrip('/')
-    files = Iproot[Iproot['path'].str.endswith(key)]['path'].tolist()
+    if not key.endswith(".xml"):
+        key2 = key.replace(":", "_") + ".xml"
+    key2 = key2.rstrip("/")
+    files = Iproot[Iproot["path"].str.endswith(key)]["path"].tolist()
     files = [os.path.normpath(file) for file in files]
     for file in files:
         try:
             if os.access(file, os.R_OK):
                 logger.info(f"File {file} exists and is readable.")
             else:
-                logger.warning(f"File {file} exists, but is not readable.")           
-            with open(file, 'r') as f:
-                logger.info(f"File {file} opened for reading.")     
+                logger.warning(f"File {file} exists, but is not readable.")
+            with open(file, "r") as f:
+                logger.info(f"File {file} opened for reading.")
         except Exception as e:
             logger.error(f"Failed to open file {file}: {e}")
     if subdir:
-        subkeys = [i.upper() for i in filter.split('/')]
-        matched_keys =  []
-        dirs = Iproot[Iproot['key'] == key ]['path'].tolist()
+        subkeys = [i.upper() for i in filter.split("/")]
+        matched_keys = []
+        dirs = Iproot[Iproot["key"] == key]["path"].tolist()
         for dir in dirs:
-            idx = dir.find('\\lnk\\')
+            idx = dir.find("\\lnk\\")
             if idx == -1:
-                continue 
-            after_lnk = dir[idx + len('/lnk/'):]
-            next_slash = after_lnk.find('\\')
+                continue
+            after_lnk = dir[idx + len("/lnk/") :]
+            next_slash = after_lnk.find("\\")
             mykey_str = after_lnk[:next_slash] if next_slash != -1 else after_lnk
-            mykeys = mykey_str.upper().split('-') if mykey_str else []
-            dir_level = compare_mykeys_subkeys(mykeys,subkeys)
+            mykeys = mykey_str.upper().split("-") if mykey_str else []
+            dir_level = compare_mykeys_subkeys(mykeys, subkeys)
             if dir_level >= 0:
                 return dir
     else:
         return dirs
+
 
 def compare_mykeys_subkeys(mykeys, subkeys):
     if not mykeys:
@@ -127,45 +138,56 @@ def compare_mykeys_subkeys(mykeys, subkeys):
     else:
         return 3
 
+
 def make_key(vlnv):
     try:
         vendor = vlnv.find("Vendor").text if vlnv.find("Vendor") is not None else None
-        library = vlnv.find("Library").text if vlnv.find("Library") is not None else None
+        library = (
+            vlnv.find("Library").text if vlnv.find("Library") is not None else None
+        )
         name = vlnv.find("Name").text if vlnv.find("Name") is not None else None
-        version = vlnv.find("Version").text if vlnv.find("Version") is not None else None
-        
+        version = (
+            vlnv.find("Version").text if vlnv.find("Version") is not None else None
+        )
+
         if vendor is None or library is None or name is None or version is None:
-            raise ValueError("ERROR: Missing one or more components in VLNV (Vendor, Library, Name, Version).")
-        
+            raise ValueError(
+                "ERROR: Missing one or more components in VLNV (Vendor, Library, Name, Version)."
+            )
+
         return f"{vendor}:{library}:{name}:{version}"
-    
+
     except ValueError as e:
         print(f"Error: {e}")
         return None
 
 
-def collect_parameters(filterparams, input_file, filter,data):
+def collect_parameters(filterparams, input_file, filter, data):
     tree = ET.parse(input_file)
     root = tree.getroot()
-    
+
     parameter_maps = root.findall(".//ParameterMap")
     commons = [pm for pm in parameter_maps if pm.find("Name").text not in filterparams]
-    default_filters = [pm for pm in parameter_maps if pm.find("Name").text in filterparams]
-    
-    instances = [
-        inst for inst in root.findall(".//Instance")
-        if inst.find("Silicon") is None or any(filter in s.text for s in inst.findall("Silicon"))
+    default_filters = [
+        pm for pm in parameter_maps if pm.find("Name").text in filterparams
     ]
-    
+
+    instances = [
+        inst
+        for inst in root.findall(".//Instance")
+        if inst.find("Silicon") is None
+        or any(filter in s.text for s in inst.findall("Silicon"))
+    ]
+
     instance_keys = []
     for instance in instances:
         vlnv_element = instance.find(".//VLNV")
         if vlnv_element is not None:
             key = make_key(vlnv_element)
             instance_keys.append((instance, key))
-    save_instance_keys_to_xml(instance_keys, 'IPdefs.xml')
+    save_instance_keys_to_xml(instance_keys, "IPdefs.xml")
     sorted_instance_keys = sorted(instance_keys, key=lambda x: x[1])
-    
+
     grouped_instances = {}
     for key, group in groupby(sorted_instance_keys, key=lambda x: x[1]):
         grouped_instances[key] = [copy.deepcopy(inst) for inst, _ in group]
@@ -176,6 +198,7 @@ def collect_parameters(filterparams, input_file, filter,data):
             print(transform_parameters(file))
 
     return files
+
 
 def save_instance_keys_to_xml(instance_keys, output_file):
     root = ET.Element("Instances")
@@ -195,7 +218,7 @@ def save_instance_keys_to_xml(instance_keys, output_file):
     tree.write(output_file, encoding="utf-8", xml_declaration=True)
 
 
-#parammaps
+# parammaps
 def transform_parameters(xml_root):
     tree = ET.parse(xml_root)
     xml_root = tree.getroot()
@@ -206,7 +229,7 @@ def transform_parameters(xml_root):
 
     for param_block in xml_root.findall(".//Component/ParamDeclBlock/ParamDecl"):
         param_nodes.append(param_block)
-    
+
     for const_block in xml_root.findall(".//Component/ConstDefBlock/ConstDef"):
         param_nodes.append(const_block)
 
@@ -229,15 +252,16 @@ def transform_parameters(xml_root):
 
     return parameter_element
 
+
 def parammaps(file_path, grouping_key):
     if not os.path.exists(file_path):
         print(f"Missing component definition: {file_path}")
-        return None  
+        return None
 
     tree = ET.parse(file_path)
     root = tree.getroot()
 
-    root_output = ET.Element("Root")  
+    root_output = ET.Element("Root")
 
     parameters = ET.Element("Parameters", key=grouping_key)
     parameters.extend(root.findall(".//ParamDeclBlock/ParamDecl"))
@@ -258,7 +282,8 @@ def parammaps(file_path, grouping_key):
     modes.extend(root.findall(".//Interface/AccessCondition"))
     root_output.append(modes)
 
-    return ET.tostring(root_output,  encoding="unicode")
+    return ET.tostring(root_output, encoding="unicode")
+
 
 def group_instances(xml_path):
     tree = ET.parse(xml_path)
@@ -274,45 +299,55 @@ def group_instances(xml_path):
 
     return grouped_instances
 
+
 def process_document():
     pass
-    
+
+
 def create_metadata(toolversion, IProot, df, Ipdefs, effectiveFilter, Doc_Author):
     db = ET.Element("DB")
     meta_data = ET.SubElement(db, "MetaData", audience="Internal")
-    table = ET.SubElement(meta_data, "S_Table", frame="topbot", cols="3", colsep="1", rowsep="1", Type="Normal")
+    table = ET.SubElement(
+        meta_data,
+        "S_Table",
+        frame="topbot",
+        cols="3",
+        colsep="1",
+        rowsep="1",
+        Type="Normal",
+    )
     table.set("cwidths", "1.263in 1.407in 4.230in")
-    
+
     table_title = ET.SubElement(table, "TableTitle")
     caption = ET.SubElement(table_title, "TCaption")
     caption.text = "Document Level Metadata"
-    
+
     s_head = ET.SubElement(table, "S_Head")
     s_hrow = ET.SubElement(s_head, "S_HRow", rowsep="1")
-    
+
     for colname, text in [("1", "Namespace"), ("2", "Property"), ("3", "Value")]:
         s_hcell = ET.SubElement(s_hrow, "S_HCell", colname=colname, hAlign="Normal")
         s_hcell_body = ET.SubElement(s_hcell, "S_HCellBody")
         s_hcell_body.text = text
-    
+
     s_body = ET.SubElement(table, "S_Body")
-    
+
     metadata_rows = [
         ("dc", "Creator", Doc_Author),
         ("dc", "Title", "Instance Sheet"),
         ("dc", "Description", f"Instance specifications for silicon {effectiveFilter}"),
         ("xapBJ", "JobRef", clean_filename(IProot)),
     ]
-    
+
     for ns, prop, value in metadata_rows:
         s_row = ET.SubElement(s_body, "S_Row", rowsep="1")
         for colname, text in [("1", ns), ("2", prop), ("3", value)]:
             s_cell = ET.SubElement(s_row, "S_Cell", colname=colname)
             s_cell_body = ET.SubElement(s_cell, "S_CellBody")
             s_cell_body.text = text
-    
+
     if not df.empty:
-        for item in df['path']:
+        for item in df["path"]:
             s_row = ET.SubElement(s_body, "S_Row", rowsep="1")
             s_cell1 = ET.SubElement(s_row, "S_Cell", colname="1")
             s_cell1_body = ET.SubElement(s_cell1, "S_CellBody")
@@ -323,8 +358,9 @@ def create_metadata(toolversion, IProot, df, Ipdefs, effectiveFilter, Doc_Author
             s_cell3 = ET.SubElement(s_row, "S_Cell", colname="3")
             s_cell3_body = ET.SubElement(s_cell3, "S_CellBody")
             s_cell3_body.text = clean_filename(item)
-    
-    return db 
+
+    return db
+
 
 def create_xml(toolversion, IProot, df, Ipdefs, effectiveFilter, Doc_Author):
     root = ET.Element("root")
@@ -336,74 +372,138 @@ def create_xml(toolversion, IProot, df, Ipdefs, effectiveFilter, Doc_Author):
     ]
 
     for comment in comments:
-        root.append(ET.Comment(comment))  
+        root.append(ET.Comment(comment))
     db = create_metadata(toolversion, IProot, df, Ipdefs, effectiveFilter, Doc_Author)
-    root.append(db)  
+    root.append(db)
     return ET.tostring(root, encoding="utf-8")
 
 
-def instance_initialization(input_file, effective_filter, output_file='./instance.xml'):
+def instance_initialization(input_file, effective_filter, output_file="./instance.xml"):
     tree = ET.parse(input_file)
     root = tree.getroot()
 
     instances = [
-        inst for inst in root.findall(".//Instance")
-        if (inst.find("Silicon") is None or any(effective_filter in s.text for s in inst.findall("Silicon"))) and (
-            inst.attrib.get("type") == "VirtualInstance" or 
-            inst.attrib.get("xsi:type") == "VirtualInstance" or 
-            inst.attrib.get("type") == "ComponentInstance" or 
-            inst.attrib.get("xsi:type") == "ComponentInstance"
+        inst
+        for inst in root.findall(".//Instance")
+        if (
+            inst.find("Silicon") is None
+            or any(effective_filter in s.text for s in inst.findall("Silicon"))
+        )
+        and (
+            inst.attrib.get("type") == "VirtualInstance"
+            or inst.attrib.get("xsi:type") == "VirtualInstance"
+            or inst.attrib.get("type") == "ComponentInstance"
+            or inst.attrib.get("xsi:type") == "ComponentInstance"
         )
     ]
 
-    sorted_instances = sorted(instances, key=lambda inst: (
-        (inst.attrib.get("type"), inst.attrib.get("xsi:type")),
-        (inst.find('ConceptName').text if inst.find('ConceptName') is not None else ''),
-        (inst.find('DesignName').text if inst.find('DesignName') is not None else '')
-    ))
-    
-    output_root = ET.Element('Instances')
+    sorted_instances = sorted(
+        instances,
+        key=lambda inst: (
+            (inst.attrib.get("type"), inst.attrib.get("xsi:type")),
+            (
+                inst.find("ConceptName").text
+                if inst.find("ConceptName") is not None
+                else ""
+            ),
+            (
+                inst.find("DesignName").text
+                if inst.find("DesignName") is not None
+                else ""
+            ),
+        ),
+    )
+
+    output_root = ET.Element("Instances")
     for inst in sorted_instances:
         output_root.append(inst)
 
     tree = ET.ElementTree(output_root)
-    tree.write(output_file, encoding='utf-8', xml_declaration=True)
+    tree.write(output_file, encoding="utf-8", xml_declaration=True)
     root = tree.getroot()
-    
+
     return sorted_instances, root
-    
+
 
 def get_class_id(root):
-    self_values = [self_id.text for self_id in root.findall(".//Int_Class_ID") if self_id.text is not None]
+    self_values = [
+        self_id.text
+        for self_id in root.findall(".//Int_Class_ID")
+        if self_id.text is not None
+    ]
     return self_values
 
 
 def get_shell(root, effective_filter):
     ref = [
-        ciref.find("ComponentInstanceRef").text for ciref in root.findall(".//ComponentInstanceReference")
-        if (ciref.find("Silicon") is None or any(effective_filter in s.text for s in ciref.findall("Silicon"))) and
-        (ciref.find("ComponentInstanceRef") is not None)
+        ciref.find("ComponentInstanceRef").text
+        for ciref in root.findall(".//ComponentInstanceReference")
+        if (
+            ciref.find("Silicon") is None
+            or any(effective_filter in s.text for s in ciref.findall("Silicon"))
+        )
+        and (ciref.find("ComponentInstanceRef") is not None)
     ]
-    
+
     shell = [
-        inst.find("ParameterMap") for inst in root.findall(".//Instance") 
-        if (inst.find("Int_Class_ID") is not None and
-            inst.find("Int_Class_ID").text in ref) and
-            inst.find("ParameterMap") is not None
+        inst.find("ParameterMap")
+        for inst in root.findall(".//Instance")
+        if (
+            inst.find("Int_Class_ID") is not None
+            and inst.find("Int_Class_ID").text in ref
+        )
+        and inst.find("ParameterMap") is not None
     ]
     return shell
 
 
-def spec_name():
-    return ""
+def spec_name(inst):
+    if inst.find("ConceptName") is not None:
+        return inst.find("ConceptName").text
+    if inst.find("DesignName") is None and inst.find("VLNV/Name") is not None:
+        return inst.find("VLNV/Name").text
+    if inst.find("DesignName") is not None:
+        return inst.find("DesignName").text
+    else:
+        return ""
 
 
-def get_fileref(instances):
-    return [make_key(inst.find(".//VLNV")) for inst in instances if inst.find(".//VLNV") is not None]
-    # with open("fileref.txt", "w", encoding="utf-8") as f:
-    #             for key in fileref:
-    #                 f.write(f"{key}\n")
-    # return fileref
+def get_fileref(inst):
+    return make_key(inst.find(".//VLNV")) if inst.find(".//VLNV") is not None else ""
+
+
+def instance(instances, extracolumns):
+    root = ET.Element("Instances")
+
+    for inst in instances:
+        new_instance = ET.Element("Instance")
+
+        for attr in ["type", "xsi:type"]:
+            if attr in inst.attrib:
+                new_instance.set(attr, inst.attrib[attr])
+
+        new_instance.set("InstanceName", spec_name(inst))
+        new_instance.set("Essence", get_fileref(inst))
+
+        for ip in inst.findall("InstanceProperty"):
+            name_elem = ip.find("Name")
+            value_elem = ip.find("Value")
+
+            if name_elem is not None and value_elem is not None:
+                name = name_elem.text
+                value = value_elem.text
+
+                if f"|{name}|" in extracolumns:
+                    new_instance.set(name, value)
+
+        root.append(new_instance)
+
+    xml_bytes = ET.tostring(root, encoding="utf-8")
+    dom = parseString(xml_bytes)
+    xml_as_string = dom.toprettyxml(indent="  ")
+
+    with open("new_instances.xml", "w", encoding="utf-8") as f:
+        f.write(xml_as_string)
 
 
 def main():
@@ -411,28 +511,39 @@ def main():
         Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
         filter = None
         toolversion = 1.4
-        Doc_Author = 'Abc Abc'
+        Doc_Author = "Abc Abc"
         drive = "file:"
         disc = ""
-        filter_params = ['audience', 'platform', 'product', 'package', 'props', 'otherprops']
-        input = 'C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml'
-        filter = find_filter(input_file='C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml',filter = filter)
+        filter_params = [
+            "audience",
+            "platform",
+            "product",
+            "package",
+            "props",
+            "otherprops",
+        ]
+        input = "C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml"
+        filter = find_filter(
+            input_file="C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml",
+            filter=filter,
+        )
         data = open_lookup_file(Iproot)
-        #data = process_df(drive,disc,data)
-        '''data.to_csv('lookup_file.csv')
-        IPdefs = collect_parameters(filter_params,input, filter,data)'''
-        xml_str = create_xml(toolversion, Iproot, data, 'IPdefs.xml', filter, Doc_Author)
-        
+        # data = process_df(drive,disc,data)
+        """data.to_csv('lookup_file.csv')
+        IPdefs = collect_parameters(filter_params,input, filter,data)"""
+        xml_str = create_xml(
+            toolversion, Iproot, data, "IPdefs.xml", filter, Doc_Author
+        )
+
         pretty_xml = parseString(xml_str).toprettyxml(indent="  ")
 
         with open("output.xml", "w", encoding="utf-8") as f:
             f.write(pretty_xml)
-    
-
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
         raise
+
 
 if __name__ == "__main__":
     main()

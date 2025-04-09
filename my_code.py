@@ -6,31 +6,11 @@ from instance2 import (
     instance_initialization,
     get_class_id,
     get_shell,
-    spec_name,
-    get_fileref,
+    instance,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-def instance(root, instances, extracolumns):
-    instance = ET.Element("Instance")
-
-    for attr in ["type", "xsi:type"]:
-        if attr in root[0].attrib:
-            instance.set(attr, root[0].attrib[attr])
-
-    instance.set("InstanceName", spec_name())
-    instance.set("Essence", get_fileref(instances))
-
-    for ip in root.findall("InstanceProperty"):
-        name = ip.find("Name").text
-        value = ip.find("Value").text
-
-        if f"|{name}|" in extracolumns:
-            instance.set(name, value)
-    return instance
 
 
 def main():
@@ -57,20 +37,10 @@ def main():
             input_file, filter, output_file
         )
         ids = get_class_id(instances_root)
-
         shell = get_shell(instances_root, filter)
 
         extracolumns = "|SpiritClass|"
-        result = instance(instances_root, instances, extracolumns)
-
-        # output_root = ET.Element("Instances")
-        # for inst in result:
-        #     output_root.append(inst)
-
-        # tree = ET.ElementTree(output_root)
-        # tree.write("1.xml", encoding="utf-8", xml_declaration=True)
-
-        # print(result.attrib)
+        instance(instances, extracolumns)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
