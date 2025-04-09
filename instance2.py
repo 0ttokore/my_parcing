@@ -415,6 +415,7 @@ def instance_initialization(input_file, effective_filter, output_file="./instanc
     )
 
     output_root = ET.Element("Instances")
+
     for inst in sorted_instances:
         output_root.append(inst)
 
@@ -539,6 +540,7 @@ def main():
 
         with open("output.xml", "w", encoding="utf-8") as f:
             f.write(pretty_xml)
+            
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
