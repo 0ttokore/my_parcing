@@ -6,8 +6,7 @@ from instance2 import (
     instance_initialization,
     get_class_id,
     get_shell,
-    spec_name,
-    get_fileref,
+    instance,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -38,11 +37,10 @@ def main():
             input_file, filter, output_file
         )
         ids = get_class_id(instances_root)
-
         shell = get_shell(instances_root, filter)
-        fileref = get_fileref(instances)
 
-        specname = spec_name()
+        extracolumns = "|SpiritClass|"
+        instance(instances, extracolumns)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
