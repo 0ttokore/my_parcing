@@ -504,6 +504,50 @@ def instance(instances, extracolumns):
 
     with open("new_instances.xml", "w", encoding="utf-8") as f:
         f.write(xml_as_string)
+    return root
+
+
+def get_myname_from_root(root):
+    short_name = root.find(".//ShortName")
+    name = root.find(".//Name")
+    ext_vlnv_name = root.find(".//ExtVLNV/Name")
+    result = []
+    if (
+        short_name is not None
+        and short_name.text
+        and len(re.sub(r"^.?:(.?)\"?$", r"\1", short_name.text)) > 0
+    ):
+        clean_name = re.sub(r"^.*?:", "", short_name.text).replace('"', "")
+        result.append(clean_name)
+        result.append(clean_name + "_")
+    elif name is None or (
+        name is not None and (not name.text or not name.text.strip())
+    ):
+        if ext_vlnv_name is not None and ext_vlnv_name.text:
+            result.append(ext_vlnv_name.text.lower())
+    elif (
+        name is not None
+        and ext_vlnv_name is not None
+        and name.text.strip() == ext_vlnv_name.text.lower()
+    ):
+        result.append(ext_vlnv_name.text.lower())
+    else:
+        if name is not None and name.text:
+            result.append(name.text.strip())
+            result.append(name.text.strip() + "_")
+    return result
+
+
+def create_socket(path):
+    try:
+        tree = ET.parse(path)
+        root = tree.getroot()
+    except Exception as e:
+        print(f"Error processing {path}: {str(e)}")
+        return
+    myname = get_myname_from_root(root)
+    role_element = root.find(".//Role")
+    role = role_element.text if role_element is not None and role_element.text else None
 
 
 def main():
