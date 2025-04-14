@@ -77,24 +77,19 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
             
             name = socket_prefix + my_name[0]
             if signal.find(".//DataType//Vector") is not None:
-                #vector = []
                 for vec in signal.findall(".//DataType//Vector"):
-                    #vector.append(vec.text)
                     vector_element = ET.SubElement(member, "Vector")
                     vector_element.text = vec.text
             
             port_direction = port.find(".//Direction")
             if reverse == 1 and port_direction is not None and port_direction.text == "in":
-                direction = 'out'
+                add_direction(member, 'out')
             elif reverse == 1 and port_direction is not None and port_direction.text == "out":
-                direction = 'in'
+                add_direction(member, 'in')
             else:
                 if port_direction is not None:
-                    #direction = []
                     for direct in port.findall(".//Direction"):
-                        #direction.append(direct.text)
-                        direction_element = ET.SubElement(member, "Direction")
-                        direction_element.text = direct.text      
+                        add_direction(member, direct.text)
             
 
 def add_comment(text_comment, signal_keys, signal_values, port_keys, port_values, signal, port):
@@ -103,6 +98,11 @@ def add_comment(text_comment, signal_keys, signal_values, port_keys, port_values
     ):
         signal_id = signal.find("./ID").text
         port.insert(0, ET.Comment(f"{text_comment} {signal_id}"))
+
+
+def add_direction(member, text):
+    direction_element = ET.SubElement(member, "Direction")
+    direction_element.text = text
 
 
 def main():
