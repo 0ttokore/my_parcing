@@ -1,109 +1,338 @@
 import xml.etree.ElementTree as ET
 import logging
+from collections import defaultdict
+from decimal import Decimal
+from typing import List
 import re
 from instance2 import (
     open_lookup_file,
     find_filter,
-    instance_initialization,
-    get_class_id,
-    get_shell,
-    instance,
-    resolve_path,
-    process_df,
-    parammaps,
-    create_socket,
-    get_myname_from_root,
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def interface_def_role(interface_path, interface, excludes, includes, reverse=0):
-    tree = ET.parse(interface_path)
-    root = tree.getroot()
+def integer_essence(
+    input_str: str, context: str = None, varmap: list = None
+) -> Decimal:
+    if context is None:
+        return integer_essence(input_str, "0")
+    elif varmap is None:
+        return num_essence(parse_essence(input_str), context)
+    else:
+        return f"varmap"
+        return num_essence(
+            prune_essence(prune_essence(input_str), context, varmap, 0), context
+        )
 
-    if not isinstance(interface, list):
-        interface = []
-    if not isinstance(excludes, list):
-        excludes = []
-    if not isinstance(includes, list):
-        includes = []
 
-    socket_element = ET.Element("Socket", Name=interface[0]) if len(interface) > 0 else ""
-    socket_prefix = interface[1] if len(interface) > 1 else ""
+def parse_essence(input_str: str) -> list:
+    root = ET.Element("consts")
+    consts = []
+    for position, const in enumerate(
+        extract_quoted(input_str, []), start=1
+    ):  # we start from 1, bc we need position, not index
+        op = ET.SubElement(
+            root,
+            "op",
+            {"kind": "const", "type": "string", "prio": "8", "pos": str(position)},
+        )
+        op.text = const
+    consts.append(root)
+    patched_str = patch_quoted(input_str, consts)
+    return to_tree_essence(patched_str, consts)
 
-    signals = root.findall(".//Signal")
 
-    for port in root.findall("./InterfaceDefPort"):
-        port_id = port.find("ID").text
-        signal = next((sign for sign in signals if port.find("./XRefSignal/XRefTargetID").text in sign.find("ID").text), None)
+def num_essence():
+    pass
 
-        signal_keys = [k.text for k in signal.findall("./Property/Key")]
-        signal_values = [v.text for v in signal.findall("./Property/Value")]
 
-        port_keys = [k.text for k in port.findall("./Property/Key")]
-        port_values = [v.text for v in port.findall("./Property/Value")]
+def prune_essence():
+    pass
 
-        if port_id in excludes:
-            add_comment("excluding ", signal_keys, signal_values, port_keys, port_values, signal, port)
 
-        elif len(includes) > 0 and port_id not in includes:
-            add_comment("not including ", signal_keys, signal_values, port_keys, port_values, signal, port)
-            
-        elif "owner" in port_keys and port_values is not None and port_values != 'concept':
-            pass
+def extract_quoted(input_str: str, consts: List[str] = []) -> List[str]:
+    quot = '"'
+    apos = "'"
 
-        elif not("owner" in signal_keys and signal_values is not None) or "owner" in signal_keys and signal_values != 'concept':
-            pass
-        
+    double_length = (
+        len(input_str.split(quot, 1)[0]) if quot in input_str else len(input_str)
+    )
+    single_length = (
+        len(input_str.split(apos, 1)[0]) if apos in input_str else len(input_str)
+    )
+    
+    if double_length < single_length:
+        sub_str = input_str.split(quot, 1)[1] if quot in input_str else ""
+        sub_s = sub_str.split(quot, 1)[1] if quot in sub_str else ""
+        if double_length == 0 and len(sub_str) == 0:  # just a single ": string = '"'
+            return extract_quoted(sub_s, consts + [quot])
+        elif sub_str.startswith(quot):
+            return extract_quoted(sub_s, consts)
         else:
-            member = ET.Element('Member')
-            member.set('wire', signal.find("./ID").text)
-            my_name = []
-            
-            port_short_name = root.find(".//ShortName")
-            signal_short_name = root.find(".//Signal//ShortName")
-            port_name = port.find(".//Name")
-            
-            if port_short_name is not None and port_short_name.text and len(port_short_name.text) > 0:
-                my_name.append(port_short_name.text.replace('"', ""))
-            elif signal_short_name is not None and signal_short_name.text and len(signal_short_name.text) > 0:
-                my_name.append(signal_short_name.text.replace('"', ""))
+            before_s = sub_str.split(quot, 1)[0] if quot in sub_str else ""
+            return extract_quoted(sub_s, consts + [before_s])
+    elif double_length > single_length:
+        sub_str = input_str.split(apos, 1)[1] if apos in input_str else ""
+        sub_s = sub_str.split(apos, 1)[1] if apos in sub_str else ""
+        if single_length == 0 and len(sub_str) == 0:  # just a single ': string = "'"
+            return extract_quoted(sub_s, consts + [apos])
+        elif sub_str.startswith(apos):
+            return extract_quoted(sub_s, consts)
+        else:
+            before_s = sub_str.split(apos, 1)[0] if apos in sub_str else ""
+            return extract_quoted(sub_s, consts + [before_s])
+    else:
+        return consts
+
+
+def patch_quoted(input_str: str, consts: list) -> str:
+    quot = '"'
+    apos = "'"
+
+    double_length = (
+        len(input_str.split(quot, 1)[0]) if quot in input_str else len(input_str)
+    )
+    single_length = (
+        len(input_str.split(apos, 1)[0]) if apos in input_str else len(input_str)
+    )
+    
+    if double_length < single_length:
+        sub_str = input_str.split(quot, 1)[1] if quot in input_str else ""
+        sub_s = sub_str.split(quot, 1)[1] if quot in sub_str else ""
+        if double_length == 0 and len(sub_str) == 0:  # just a single ": string = '"'
+            first_quote = next((c for c in consts if c.text == quot), None)
+            if first_quote is not None:
+                return f"$${first_quote.get('pos')}"
             else:
-                if port_name is not None and port_name.text:
-                    modified_name = re.sub(r'^(.*?)_a?[io]s*$', r'\1', port_name.text)
-                    my_name.append(' '.join(modified_name.split()))
-            
-            name = socket_prefix + my_name[0]
-            if signal.find(".//DataType//Vector") is not None:
-                for vec in signal.findall(".//DataType//Vector"):
-                    vector_element = ET.SubElement(member, "Vector")
-                    vector_element.text = vec.text
-            
-            port_direction = port.find(".//Direction")
-            if reverse == 1 and port_direction is not None and port_direction.text == "in":
-                add_direction(member, 'out')
-            elif reverse == 1 and port_direction is not None and port_direction.text == "out":
-                add_direction(member, 'in')
+                return None
+        elif sub_str.startswith(quot):
+            return f"{input_str[:double_length]}'$$1'{patch_quoted(sub_s, consts)}"
+        else:
+            before_s = sub_str.split(quot, 1)[0] if quot in sub_str else ""
+            first_quote = next((c for c in consts if c.text == before_s), None)
+            if first_quote is not None:
+                return f"{input_str[:double_length]}'$$'{first_quote.get('pos')}{patch_quoted(sub_s, consts)}"
             else:
-                if port_direction is not None:
-                    for direct in port.findall(".//Direction"):
-                        add_direction(member, direct.text)
-            
+                return None
+    elif double_length > single_length:
+        sub_str = input_str.split(apos, 1)[1] if apos in input_str else ""
+        sub_s = sub_str.split(apos, 1)[1] if apos in sub_str else ""
+        if double_length == 0 and len(sub_str) == 0:  # just a single ': string = "'"
+            first_quote = next((c for c in consts if c.text == apos), None)
+            if first_quote is not None:
+                return f"$${first_quote.get('pos')}"
+            else:
+                return None
+        elif sub_str.startswith(apos):
+            return f"{input_str[:double_length]}'$$1'{patch_quoted(sub_s, consts)}"
+        else:
+            before_s = sub_str.split(apos, 1)[0] if apos in sub_str else ""
+            first_quote = next((c for c in consts if c.text == before_s), None)
+            if first_quote is not None:
+                return f"{input_str[:double_length]}'$$'{first_quote.get('pos')}{patch_quoted(sub_s, consts)}"
+    else:
+        return input_str
 
-def add_comment(text_comment, signal_keys, signal_values, port_keys, port_values, signal, port):
-    if ("owner" in port_keys and "concept" in port_values) or (
-        "owner" in signal_keys and "concept" in signal_values
-    ):
-        signal_id = signal.find("./ID").text
-        port.insert(0, ET.Comment(f"{text_comment} {signal_id}"))
+
+def decimal_to_hex(decimal_number: int) -> str:
+    hex_digits = "0123456789ABCDEF"
+    upper_digits = decimal_to_hex(decimal_number // 16) if decimal_number >= 16 else ""
+    current_digit = hex_digits[decimal_number % 16]
+    return upper_digits + current_digit
 
 
-def add_direction(member, text):
-    direction_element = ET.SubElement(member, "Direction")
-    direction_element.text = text
+def to_tree_essence(input_str: str, consts: list) -> list:
+    root = ET.Element("Essence")
+    if re.match(r"^\s*\$curlyLeft\s*$", input_str):
+        ET.SubElement(
+            root, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+        ).text = "'{'"
+    elif re.match(r"^\s*\$curlyRight\s*$", input_str):
+        ET.SubElement(
+            root, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+        ).text = "'}'"
+    elif re.match(r"^\s*true\s*$", input_str, re.IGNORECASE):
+        ET.SubElement(
+            root, "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+        ).text = 1
+    elif re.match(r"^\s*false\s*$", input_str, re.IGNORECASE):
+        ET.SubElement(
+            root, "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+        ).text = 0
+    # prio 1
+    elif ")" in input_str:
+        sub_str = input_str.split(")", 1)[0]
+        bracket = re.sub(r"^.*\(", "", sub_str)
+        brack = len(sub_str) + 1
+        lbrack = re.sub(r"\s*\([^\(]*$", "", sub_str)
+        rbrack = input_str[brack:]
 
+        if len(lbrack) == 0:
+            subtree = to_tree_essence(bracket, consts)
+            return to_tree_essence(f"$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("min"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "min"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("min$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("max"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "max"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("max$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("rshift"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "rshift"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("rshift$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("lshift"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "lshift"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("lshift$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("log"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "log"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("log$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif re.match(r'dec\d*$', lbrack):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "'dec'"
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+            ).text = 1 if lbrack.endswith('dec') else lbrack.split('dec', 1)[-1]
+            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("dec\d*$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif re.match(r'hex\d*$', lbrack):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "'hex'"
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+            ).text = 1 if lbrack.endswith('hex') else lbrack.split('hex', 1)[-1]
+            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("hex\d*$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif re.match(r'bin\d*$', lbrack):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "'bin'"
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+            ).text = 1 if lbrack.endswith('bin') else lbrack.split('bin', 1)[-1]
+            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("bin\d*$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif re.match(r'eng$', lbrack):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "'eng'"
+            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("eng$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        
+        elif lbrack.endswith("list"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "list"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("list$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        elif lbrack.endswith("pos"):
+            subtree = []
+            op = ET.SubElement(
+                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
+            )
+            ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = "pos"
+
+            for token in bracket.split(","):
+                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
+            subtree.append(root)
+            return to_tree_essence(f"{lbrack.replace("pos$", "")}$${len(consts) + 1}{rbrack}", consts + [subtree])
+        else:
+            subtree = to_tree_essence(bracket, consts)
+            return to_tree_essence(f"{lbrack}$${len(consts) + 1}{rbrack}", consts + [subtree])
+    
+    elif '|' in input_str or '&' in input_str or '^' in input_str:
+        orr = re.sub(r'^.*\|+', '', input_str)
+        or_length = len(orr)
+        andr = re.sub(r'^.*&+', '', input_str)
+        and_length = len(andr)
+        xorr = re.sub(r'^.*\^', '', input_str)
+        xor_length = len(xorr)
+        
+        if and_length < or_length and and_length < xor_length:
+            pass
+    
+    
 
 def main():
     try:
@@ -125,97 +354,61 @@ def main():
         data = open_lookup_file(Iproot)
         drive = "file:"
         disc = ""
-        output_file = "./instance.xml"
 
-        instances, instances_root = instance_initialization(
-            input_file, filter, output_file
-        )
-        ids = get_class_id(instances_root)
-        shell = get_shell(instances_root, filter)
+        input_str = "head(mid)tail"
+        sub_str = input_str.split(")", 1)[0]
+        bracket = re.sub(r"^.*\(", "", sub_str)
+        brack = len(sub_str) + 1
+        lbrack = re.sub(r"\s*\([^\(]*$", "", sub_str)
+        rbrack = input_str[brack:]
 
-        extracolumns = "|SpiritClass|"
-        root = instance(instances, extracolumns)
-
-        # data = process_df(drive, disc, data)
-        # #data.to_csv("lookup_file.csv")
-
-        # dirs = {
-        #     resolve_path(inst.attrib["Essence"], True, data, filter)
-        #     for inst in root
-        #     if resolve_path(inst.attrib["Essence"], True, data, filter) is not None
-        # }
-
-        p_1 = "./sas.xml"
-        p_2 = "./o.xml"
-        p_3 = "./kek.xml"
-        reverse = 1
-
-        tree = ET.parse(p_1)
+        tree = ET.parse("./instance_sheet_TC49x.xml")
         root = tree.getroot()
-        signals = root.findall(".//Signal")
-
-        for port in root.findall(".//InterfaceDefPort"):
-            port_id = port.find("ID").text
-
-            signal = next(
-                (
-                    sign
-                    for sign in signals
-                    if port.find("./XRefSignal/XRefTargetID").text
-                    in sign.find("ID").text
-                ),
-                None,
-            )
-            
-            # member = ET.Element('Member')
-            # member.set('wire', signal.find("./ID").text)
-
-            # for i in range(1, 4):
-            #     vector_element = ET.SubElement(member, "Vector")
-            #     vector_element.text = f"vector_{i}"
-                
-            # ET.dump(member)
-                    
-            # print(port.find(".//Name").text)
-
-            # signal_keys = [k.text for k in signal.findall("./Property/Key")]
-            # signal_values = [v.text for v in signal.findall("./Property/Value")]
-
-            # port_keys = [k.text for k in port.findall("./Property/Key")]
-            # port_values = [v.text for v in port.findall("./Property/Value")]
-
-            # add_comment("excluding ", signal_keys, signal_values, port_keys, port_values, signal, port)
-            #ET.dump(root)
-            
-            # root = ET.Element('Member')
-            # root.set('wire', signal.find("./ID").text)
-
-            #result = ET.tostring(root, encoding='unicode')
-            #print(result)
-            
-            # port_direction = port.find(".//Direction")
-            # print(port_direction)
-            # if reverse == 1 and port_direction is not None and port_direction.text == "in":
-            #     direction = 'out'
-            # elif reverse == 1 and port_direction is not None and port_direction.text == "out":
-            #     direction = 'in'
-            # else:
-            #     if port_direction is not None:
-            #         direction = []
-            #         for direct in port.findall(".//Direction"):
-            #             direction.append(direct.text)
-            # print(direction)
-            
-        # res = root.findall('.//ShortName')
-        # name = root.findall(".//Name")
-        # for r in name:
-        #     print(r.text)
+        address = [
+            add
+            for add in root.findall(".//BusInstanceReference/BusInterfaceMap")
+            if add.get("type") == "BusSlaveInterfaceMap"
+        ]
+        start_address = [
+            add.find(".//StartAddress").text
+            for add in address
+            if add.find(".//StartAddress").text is not None
+        ]
+        end_address = [
+            add.find(".//EndAddress").text
+            for add in address
+            if add.find(".//EndAddress").text is not None
+        ]
+        input_add = start_address[0]
+        input_add = 'ex_1"head"ex_2\'mid\'ex_3"tail'
+        #result = integer_essence(input_add)
+        # print(parse_essence(input_add))
+        # consts = (extract_quoted(input_add, []))
+        # print(consts)
+        # print(patch_quoted(input_add, consts))
         
-            # if signal.find(".//DataType//Vector") is not None:
-            #     print('True')
-            # else:
-            #     print("False")
-               
+        result = extract_quoted(input_add, [])
+        print(result)
+    
+        root = ET.Element("consts")
+        consts = []
+        for position, const in enumerate(
+            extract_quoted(input_add, []), start=1
+        ):  # we start from 1, bc we need position, not index
+            op = ET.SubElement(
+                root,
+                "op",
+                {"kind": "const", "type": "string", "prio": "8", "pos": str(position)},
+            )
+            op.text = const
+        consts.append(root)
+        
+        # for i in consts:
+        #     ET.dump(i)
+            
+        patched_str = patch_quoted(input_add, consts)
+        print(patched_str)
+        
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")

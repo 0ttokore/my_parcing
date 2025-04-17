@@ -636,6 +636,89 @@ def add_direction(member, text):
     direction_element.text = text
 
 
+def process_filters_grouped(filters):
+    try:
+        tree = ET.parse(filters)
+        root = tree.getroot()
+    except Exception as e:
+        print(e)
+    
+    result = []
+    
+    name_groups = defaultdict(list)
+    for filter_elem in root:
+        name = filter_elem.get('Name')
+        if name:
+            name_groups[name].append(filter_elem)
+    
+    for name in sorted(name_groups.keys()):
+        group = name_groups[name]
+        
+        default_values = [elem for elem in group if elem.tag == 'DefaultValue']
+        if not default_values:
+            continue
+        
+        parameter = ET.Element('Parameter')
+        parameter.set('Name', name)
+        parameter.set('Type', 'FILTER')
+        
+        initial_values = [elem for elem in group if elem.tag == 'InitialValue']
+        have_init = len(initial_values)
+        
+        have_spec = []
+        text_groups = defaultdict(list)
+        for elem in group:
+            text = elem.text or ""
+            text_groups[text].append(elem)
+        
+        for text, elems in text_groups.items():
+            default_values_in_text_group = [e for e in elems if e.tag == 'DefaultValue']
+            if default_values_in_text_group:
+                non_designation_count = sum(1 for e in elems if e.get('Style') != 'Designation')
+                have_spec.append(non_designation_count)
+        
+        for text in sorted(text_groups.keys()):
+            elems = text_groups[text]
+            
+            default_values_in_text_group = [e for e in elems if e.tag == 'DefaultValue']
+            if not default_values_in_text_group:
+                continue
+                
+            value_elems = [e for e in elems if e.tag == 'Value']
+            if value_elems:
+                ph = ET.Element('ph')
+                ph.set('Style', value_elems[0].get('Style', ''))
+                ph.text = text
+                parameter.append(ph)
+                continue
+                
+            initial_value_elems = [e for e in elems if e.tag == 'InitialValue']
+            if initial_value_elems:
+                ph = ET.Element('ph')
+                ph.set('Style', initial_value_elems[0].get('Style', ''))
+                ph.text = text
+                parameter.append(ph)
+                continue
+                
+            if have_init > 0:
+                continue
+                
+            if any(spec > 0 for spec in have_spec):
+                continue
+                
+            non_value_elems = [e for e in elems if e.tag != 'Value']
+            if non_value_elems:
+                ph = ET.Element('ph')
+                ph.set('Style', non_value_elems[0].get('Style', ''))
+                ph.text = text
+                parameter.append(ph)
+        
+        if len(parameter) > 0:
+            result.append(parameter)
+    
+    return result
+
+
 def main():
     try:
         Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
@@ -665,10 +748,25 @@ def main():
             toolversion, Iproot, data, "IPdefs.xml", filter, Doc_Author
         )
 
-        pretty_xml = parseString(xml_str).toprettyxml(indent="  ")
+        # pretty_xml = parseString(xml_str).toprettyxml(indent="  ")
 
-        with open("output.xml", "w", encoding="utf-8") as f:
-            f.write(pretty_xml)
+        # with open("output.xml", "w", encoding="utf-8") as f:
+        #     f.write(pretty_xml)
+        
+        result = process_filters_grouped('./FILTERS.xml')
+        
+        root = ET.Element('root')
+        for element in result:
+            root.append(element)
+
+        tree = ET.ElementTree(root)
+
+        from xml.dom import minidom
+        xml_str = ET.tostring(root, encoding='utf-8', method='xml')
+        pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
+        with open("output.xml", 'w', encoding='utf-8') as file:
+            file.write(pretty_xml)
+        
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
