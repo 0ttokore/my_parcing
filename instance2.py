@@ -8,6 +8,7 @@ import copy
 from collections import defaultdict
 from xml.dom.minidom import parseString
 from typing import List
+from decimal import Decimal
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1274,18 +1275,16 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         ).text = input_str
 
 
-def str2base(input_str: str, base: int):  # дописать
-    symbols = "_0123456789ABCDEF"
-
-    last_char = input_str.strip()[-1].upper() if input_str.strip() else ""
-    h = symbols.index(last_char) if last_char in symbols else -1
-    if len(input_str) < 2 or re.match(r"^0+?.$", input_str):
-        return float(h)
-
-    cleaned_input = re.sub(r"^0+", "", input_str)
-    cleaned_input = re.sub(r".$", "", cleaned_input)
-
-    return h + base * str2base(cleaned_input, base)
+def str2base(input_str: str, base: int) -> Decimal:
+    input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
+    symbols = "0123456789ABCDEF"
+    if len(input_str) == 0 or not all(c in symbols for c in input_str):
+        raise ValueError("ERROR: the string contains invalid characters or is empty!")
+    value = Decimal(0)
+    for i, char in enumerate(reversed(input_str)):
+        digit_value = symbols.index(char)
+        value += Decimal(digit_value) * (Decimal(base) ** i)
+    return value
 
 
 def extract_quoted(input_str: str, consts: List[str] = []) -> List[str]:
