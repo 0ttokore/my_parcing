@@ -13,319 +13,334 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def integer_essence(
-    input_str: str, context: str = None, varmap: list = None
-) -> Decimal:
+def prune_essence(
+    in_list: list,
+    context: str = None,
+    varmap: list = None,
+    pol: int = None,
+    warning: str = "recover",
+    suppress: str = "",
+) -> list:
     if context is None:
-        return integer_essence(input_str, "0")
+        return prune_essence(in_list, "", [], 0)
     elif varmap is None:
-        return num_essence(parse_essence(input_str), context)
+        return prune_essence(in_list, context, [], 0)
     else:
-        return num_essence(
-            prune_essence(prune_essence(input_str), context, varmap, 0), context
+        left = [prune_essence(in_list[0], context, varmap, pol)] if in_list else []
+        right = (
+            [prune_essence(in_list[1], context, varmap, pol)]
+            if len(in_list) > 1
+            else []
         )
+        if in_list.get("kind") == "func":
+            lastp = prune_essence(in_list[-1], context, varmap, pol)
+            if len(in_list) != 3:
+                op_element = ET.Element("op")
+                for attr in in_list.attrib:
+                    op_element.set(attr, in_list.attrib[attr])
 
+                if len(in_list) > 0:
+                    op_element.append(in_list[0])
+                op_element.append(right)
+                for child in in_list[2:]:
+                    op_element.append(prune_essence(child, context, varmap, pol))
+            elif (
+                in_list[0].text in ("lshift", "rshift")
+                and right.get("kind") == "const"
+                and right.text == "0"
+            ):
+                return right
+            elif (
+                in_list[0].text in ("lshift", "rshift")
+                and lastp.get("kind") == "const"
+                and lastp.text == "0"
+            ):
+                return right
+            elif (
+                in_list[0].text in ("min", "max", "lshift", "rshift", "log")
+                and right.get("kind") == "const"
+                and lastp.get("kind") == "const"
+            ):
+                res = []
+                op_element = ET.Element("op")
+                for attr in in_list.attrib:
+                    op_element.set(attr, in_list.attrib[attr])
 
-def text_essence():
-    pass
+                if len(in_list) > 0:
+                    op_element.append(in_list[0])
+                op_element.append(right)
+                op_element.append(lastp)
+                res.append(op_element)
 
+                ET.Element(
+                    "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+                ).text = num_essence(res, "0")
+            elif in_list[0].text == "pos" and lastp.get("kind") == "const":
+                index = Decimal(num_essence(lastp, context))
+                paras = []
+                if right.get("kind") == "func" and right[0].text == "list":
+                    for i, r in enumerate(right):
+                        if i - 2 == index:
+                            paras.append(r)
+                elif right.get("kind") == "var":  # дописать
+                    pass
 
-def num_essence(
-    in_list: list, context: str, warning="recover"
-) -> Decimal:  # evaluate syntax tree for a numeric target
-    if in_list.get("kind") == "and":
-        return (
-            0
-            if (
-                num_essence(in_list[0], context) == 0
-                or num_essence(in_list[1], context) == 0
-            )
-            else 1
-        )
-    elif in_list.get("kind") == "or":
-        return (
-            0
-            if (
-                num_essence(in_list[0], context) == 0
-                or num_essence(in_list[1], context) == 0
-            )
-            else 1
-        )
-    if in_list.get("kind") == "xor":
-        return (
-            0
-            if (num_essence(in_list[0], context) == num_essence(in_list[1], context))
-            else 1
-        )
-    elif (
-        in_list.get("kind") in ("ge", "le", "lt", "gt", "eq", "ne", "nm", "ma")
-        and in_list[0].get("type") == "string"
-        or in_list[1].get("type") == "string"
-    ):
-        left = text_essence(in_list[0], context)
-        right = text_essence(in_list[1], context)
-        if in_list.get("kind") == "nm":
-            return 0 if str(right) in str(left) else 1
-        elif in_list.get("kind") == "ma":
-            return 1 if str(right) in str(left) else 0
-        elif in_list.get("kind") == "eq":
-            return 1 if compare(left, right) == 0 else 0
-        elif in_list.get("kind") == "ne":
-            return 0 if compare(left, right) == 0 else 1
-        elif in_list.get("kind") == "lt":
-            return 1 if compare(left, right) < 0 else 0
-        elif in_list.get("kind") == "ge":
-            return 0 if compare(left, right) < 0 else 1
-        elif in_list.get("kind") == "gt":
-            return 1 if compare(left, right) > 0 else 0
-        elif in_list.get("kind") == "le":
-            return 0 if compare(left, right) > 0 else 1
-    elif in_list.get("kind") == "ge":
-        return (
-            0
-            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
-            else 1
-        )
-    elif in_list.get("kind") == "le":
-        return (
-            0
-            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
-            else 1
-        )
-    elif in_list.get("kind") == "gt":
-        return (
-            1
-            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
-            else 0
-        )
-    elif in_list.get("kind") == "lt":
-        return (
-            1
-            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
-            else 0
-        )
-    elif in_list.get("kind") == "eq":
-        return (
-            1
-            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
-            else 0
-        )
-    elif in_list.get("kind") == "ne":
-        return (
-            0
-            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
-            else 1
-        )
-    elif in_list.get("kind") == "add":
-        return num_essence(in_list[0], context) + num_essence(in_list[1], context)
-    elif in_list.get("kind") == "sub":
-        return num_essence(in_list[0], context) - num_essence(in_list[1], context)
-    elif in_list.get("kind") == "mul":
-        return num_essence(in_list[0], context) * num_essence(in_list[1], context)
-    elif in_list.get("kind") == "div":
-        divisor = num_essence(in_list[1], context)
-        if divisor == 0:
-            raise ValueError("ERROR: Divide by 0!")
-        return num_essence(in_list[0], context) // divisor
-    elif in_list.get("kind") == "mod":
-        class_var = num_essence(in_list[1], context)
-        if class_var == 0:
-            raise ValueError("ERROR: modulo 0!")
-        return num_essence(in_list[0], context) % class_var
-    elif in_list.get("kind") == "exp":
-        b = num_essence(in_list[0], context)
-        e = num_essence(in_list[1], context)
-        if b == 1:
-            return 1
-        elif b == 0:
-            return 0
-        elif e < 1:
-            return 1
-        elif e == 1:
-            return b
-        elif False and b % 2 == 0 and e > 63:
-            return power(2, 64)
-        elif False and b != 2 and b % 2 == 0:
-            h = power(b / 2, int(e))
-            return int((h % power(2, 64 - e)) * power(2, e))
-        elif b == 2:
-            return Decimal(power2(int(e)))
-        else:
-            return Decimal(power(b, int(e)))
-    elif in_list.get("kind") == "not":
-        return 1 if num_essence(in_list[0], context) == 0 else 0
-    elif in_list.get("kind") == "const" and in_list.get("type") in ("int", "bool"):
-        if in_list.text.upper().startswith("0B"):
-            return str2base(in_list.text[2:], 2)
-        elif in_list.text.upper().startswith("0X"):
-            return str2base(in_list.text[2:], 16)
-        elif in_list.text.upper().startswith("0O"):
-            return str2base(in_list.text[2:], 8)
-        else:
-            return in_list.text
-    elif (
-        in_list.get("kind") == "const"
-        and in_list.get("type") == "string"
-        and re.match(r"^\d+$", in_list.text)
-    ):
-        return Decimal(in_list.text)
-    elif in_list.get("kind") == "const":
-        if warning == "fatal":
-            raise ValueError(f"ERROR: Non-numeric value {in_list}")
-        else:
-            print("Replaced by -1")
-            return -1
-    elif in_list.get("kind") == "var":
-        get_parameter = ""  # дописать
-    elif in_list.get("kind") == "func" and len(in_list) != 3:
-        raise ValueError(
-            f"ERROR: Wrong number of parameters for function {in_list[0].text}"
-        )
-    elif in_list.get("kind") == "func" and in_list[0].text == "min":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
-        return paras[0] if paras[0] < paras[1] else paras[1]
-    elif in_list.get("kind") == "func" and in_list[0].text == "max":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
-        return paras[0] if paras[0] > paras[1] else paras[1]
-    elif in_list.get("kind") == "func" and in_list[0].text == "rshift":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
-        if paras[1] == 0:
-            return paras[0]
-        elif paras[1] < 0:
-            return paras[0] * Decimal(power(2, int(-paras[1])))
-        else:
-            return paras[0] // Decimal(power(2, int(paras[1])))
-    elif in_list.get("kind") == "func" and in_list[0].text == "lshift":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
-        if paras[1] == 0:
-            return paras[0]
-        elif paras[1] < 0:
-            return paras[0] // Decimal(power(2, int(-paras[1])))
-        else:
-            return paras[0] * Decimal(power(2, int(paras[1])))
-    elif in_list.get("kind") == "func" and in_list[0].text == "log":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
-        return log(paras[0], paras[1])
-    elif in_list.get("kind") == "func" and in_list[0].text == "pos":
-        index = Decimal(num_essence(in_list[2], context))
-        paras = []
-        if in_list[1].get("kind") == "func" and in_list[1][0].text == "list":  # ???
-            for i, p in enumerate(in_list[1]):
-                if i - 2 == index:  # ???
-                    paras.append(p)
-        elif in_list[1].get("kind") == "var":
-            get_parameter = ""  # дописать
-            if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
-                tree = parse_essence(get_parameter[0])
-                if tree.get("kind") == "func" and tree[0].text == "list":
-                    for i, tr in enumerate(tree):
-                        if i - 2 == index:  # ???
-                            paras.append(tr)
+                if len(paras) > 0:
+                    return prune_essence(paras[0], context, varmap, pol)
                 else:
-                    raise ValueError(
-                        f'ERROR: Invalid first parameter in "pos({in_list[1].text})!"'
-                    )
+                    if warning == "fatal":
+                        raise ValueError(
+                            f"ERROR: pos({right}, {index}) index out of bounds!"
+                        )
+                    else:
+                        print("pos(...) replaced by -1")
+                        return -1
             else:
-                if warning == "fatal":
-                    raise ValueError(f"ERROR: Unresolved parameter {in_list.text}!")
-                else:
-                    print("Replaced by -1")
-                    return -1
-        else:
-            raise ValueError('ERROR: Invalid first parameter in "pos()"!')
-        if len(paras) > 0:
-            return num_essence(paras[0], context)
-        else:
-            if warning == "fatal":
-                raise ValueError(
-                    f"ERROR: pos({in_list[1]}, {index}) index out of bounds!"
-                )
+                op_element = ET.Element("op")
+                for attr in in_list.attrib:
+                    op_element.set(attr, in_list.attrib[attr])
+
+                if len(in_list) > 0:
+                    op_element.append(in_list[0])
+                op_element.append(right)
+                op_element.append(lastp)
+        elif in_list.get("kind") == "not" and pol != 0:
+            if left.get("kind") == "not":
+                return prune_essence(left[0], context, varmap, pol)
+            elif left.get("kind") == "const":
+                op_element = ET.Element("op")
+                for attr in left.attrib:
+                    op_element.set(attr, left.attrib[attr])
+                op_element.text = 1 if left.text == "0" else 0
             else:
-                print("pos(...) replaced by -1")
-                return -1
-    else:
-        if warning == "fatal":
-            raise ValueError(f"ERROR: Non-numeric value !")
-        else:
-            print("Replaced by -1<")
-            return -1
+                op_element = ET.Element("op")
+                for attr in in_list.attrib:
+                    op_element.set(attr, in_list.attrib[attr])
+                op_element.append(prune_essence(in_list[0], context, varmap, pol))
+        elif in_list.get("kind") == "not":
+            if left.get("kind") == "not":
+                return left[0]
+            elif left.get("kind") == "const":
+                op_element = ET.Element("op")
+                for attr in left.attrib:
+                    op_element.set(attr, left.attrib[attr])
+                op_element.text = 1 if left.text == "0" else 0
+            else:
+                op_element = ET.Element("op")
+                for attr in in_list.attrib:
+                    op_element.set(attr, in_list.attrib[attr])
+                op_element.append(left)
+        elif (
+            in_list.get("kind") == "var"
+            and in_list.text == "suppress"
+            and len(suppress)
+        ):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            ).text = suppress
+        elif in_list.get("kind") == "var":  # дописать
+            pass
+        elif in_list.get("kind") == "var":  # дописать
+            pass
+        elif in_list.get("kind") == "var" and len(varmap) > 0:  # дописать
+            pass
+        elif in_list.get("kind") == "var":  # дописать
+            pass
+
+        elif in_list.get("kind") == "const" or in_list.get("kind") == "var":
+            return in_list
+        elif (
+            in_list.get("kind") == "and"
+            and left.get("kind") == "const"
+            and left.text == "0"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "and"
+            and right.get("kind") == "const"
+            and right.text == "0"
+        ):
+            return right
+        elif in_list.get("kind") == "and" and left.get("kind") == "const":
+            return right
+        elif in_list.get("kind") == "and" and right.get("kind") == "const":
+            return left
+        elif (
+            in_list.get("kind") == "or"
+            and left.get("kind") == "const"
+            and left.text == "1"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "or"
+            and right.get("kind") == "const"
+            and right.text == "1"
+        ):
+            return right
+        elif in_list.get("kind") == "or" and left.get("kind") == "const":
+            return right
+        elif in_list.get("kind") == "or" and right.get("kind") == "const":
+            return left
+        elif (
+            in_list.get("kind") == "xor"
+            and left.get("kind") == "const"
+            and right.get("kind") == "const"
+        ):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = (0 if right.text == left.text else 1)
+        elif (
+            in_list.get("kind") == "xor"
+            and left.get("kind") == "const"
+            and left.text == "1"
+        ):
+            ET.Element(
+                "op", attrib={"kind": "not", "type": "bool", "prio": "6"}
+            ).text = right
+        elif (
+            in_list.get("kind") == "xor"
+            and right.get("kind") == "const"
+            and right.text == "1"
+        ):
+            op_element = ET.Element(
+                "op", attrib={"kind": "not", "type": "bool", "prio": "6"}
+            )
+            op_element.append(right)  # ???
+            op_element.append(left)
+        elif in_list.get("kind") == "xor" and left.get("kind") == "const":
+            return right
+        elif in_list.get("kind") == "xor" and right.get("kind") == "const":
+            return left
+        elif (
+            in_list.get("kind") == "add"
+            and left.get("kind") == "const"
+            and left.text == "0"
+            and right.get("type") == "int"
+        ):
+            return right
+        elif (
+            in_list.get("kind") == "add"
+            and right.get("kind") == "const"
+            and right.text == "0"
+            and left.get("type") == "int"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "add"
+            and left.get("kind") == "const"
+            and left.get("type") == "int"
+            and right.get("kind") == "const"
+            and right.get("type") == "int"
+        ):
+            op_element = ET.Element("op")
+            for attr in left.attrib:
+                op_element.set(attr, left.attrib[attr])
+            op_element.text = Decimal(left.text) + Decimal(right.text)
+        elif (
+            in_list.get("kind") == "cat"
+            and left.get("kind") == "const"
+            and len(left.text) == 0
+        ):
+            return right
+        elif (
+            in_list.get("kind") == "cat"
+            and right.get("kind") == "const"
+            and len(right.text) == 0
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "cat"
+            and left.get("kind") == "const"
+            and right.get("kind") == "const"
+        ):
+            op_element = ET.Element("op")
+            for attr in left.attrib:
+                op_element.set(attr, left.attrib[attr])
+            op_element.set("type", "string")
+            if in_list[0].get("kind") == "var" and len(varmap) != 0:  # дописать
+                pass
+        elif (
+            in_list.get("kind") == "sub"
+            and right.get("kind") == "const"
+            and right.text == "0"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "sub"
+            and left.get("kind") == "const"
+            and left.get("type") == "int"
+            and right.get("kind") == "const"
+            and right.get("type") == "int"
+        ):
+            op_element = ET.Element("op")
+            for attr in left.attrib:
+                op_element.set(attr, left.attrib[attr])
+            op_element.text = Decimal(left.text) - Decimal(right.text)
+        elif (
+            in_list.get("kind") == "mul"
+            and left.get("kind") == "const"
+            and left.text == "0"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "mul"
+            and right.get("kind") == "const"
+            and right.text == "0"
+        ):
+            return right
+        elif (
+            in_list.get("kind") == "mul"
+            and left.get("kind") == "const"
+            and left.text == "1"
+        ):
+            return right
+        elif (
+            in_list.get("kind") == "mul"
+            and right.get("kind") == "const"
+            and right.text == "1"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "div"
+            and right.get("kind") == "const"
+            and right.text == "1"
+        ):
+            return left
+        elif (
+            in_list.get("kind") == "mod"
+            and right.get("kind") == "const"
+            and Decimal(right.text) < 2
+        ):  # ???
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+            ).text = 0
+        elif (
+            in_list.get("kind") == "exp"
+            and right.get("kind") == "const"
+            and Decimal(right.text) < 1
+        ):  # ???
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+            ).text = 1
+        elif (
+            in_list.get("kind") == "exp"
+            and right.get("kind") == "const"
+            and Decimal(right.text) < 2
+        ):  # ???
+            return left
+        elif in_list.get("kind") == "nm" and left.get("pol") != 0:
+            op_element = ET.Element("op")
+            op_element.set("pol", pol)
+            for attr in in_list.attrib:
+                op_element.set(attr, in_list.attrib[attr])
+            op = ET.SubElement(op_element, "op")
+            op.set("pol", -left.get("pol"))
+            for attr in left.attrib:
+                op.set(attr, left.attrib[attr])
+            # дописать фильтр
 
 
-def log(number: Decimal, base: Decimal) -> Decimal:
-    return logh(number, base, base * base, 0)
-
-
-def logh(number: Decimal, base: Decimal, base2: Decimal, n: Decimal) -> Decimal:
-    if number < base:
-        return n
-    elif number < base2:
-        return n + 1
-    elif number == base2:
-        return n + 2
-    else:
-        return logh(number // base2, base, base2, n + 2)
-
-
-def power(base: float, exp: int) -> float:
-    if exp < 0:
-        return powerh(1.0 / base, -exp)
-    elif exp == 0:
-        return 1.0
-    else:
-        return powerh(base, exp)
-
-
-def powerh(base: float, exp: int) -> float:
-    if exp == 1:
-        return base
-    elif exp == 2:
-        return base * base
-    elif exp == 3:
-        return base * base * base
-    else:
-        h = powerh(base, exp // 2)
-        return h * h if exp % 2 == 0 else base * h * h
-
-
-def power2(exp: int) -> Decimal:
-    if exp < 0:
-        return Decimal(1.0 / power2(-exp))
-    elif exp == 0:
-        return 1
-    elif exp == 1:
-        return 2
-    elif exp == 2:
-        return 4
-    elif exp == 3:
-        return 8
-    else:
-        h = Decimal(power2(exp // 2))
-        return h * h if exp % 2 == 0 else 2 * h * h
-
-
-def str2base(input_str: str, base: int) -> Decimal:
-    input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
-    symbols = "0123456789ABCDEF"
-    if len(input_str) == 0 or not all(c in symbols for c in input_str):
-        raise ValueError("ERROR: the string contains invalid characters or is empty!")
-    value = Decimal(0)
-    for i, char in enumerate(reversed(input_str)):
-        digit_value = symbols.index(char)
-        value += Decimal(digit_value) * (Decimal(base) ** i)
-    return value
-
-
-def compare(left, right):
-    if left == right:
-        return 0
-    return -1 if left < right else 1
-
-
-def prune_essence():
-    pass
-
-
-def parse_essence():
+def num_essence():
     pass
 
 
@@ -361,10 +376,12 @@ def main():
             op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
         ).text = "'ru'"
 
-        ET.dump(root[0])
+        # ET.dump(root[0])
 
-        ch = root.findall("./*")
-        ET.dump(ch[0])
+        # ch = root.findall("./*")
+        # ET.dump(ch[0])
+
+        print(op.attrib)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")

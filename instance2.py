@@ -550,8 +550,8 @@ def create_socket(path):
     myname = get_myname_from_root(root)
     role_element = root.find(".//Role")
     role = role_element.text if role_element is not None and role_element.text else None
-    
-    
+
+
 def interface_def_role(interface_path, interface, excludes, includes, reverse=0):
     tree = ET.parse(interface_path)
     root = tree.getroot()
@@ -563,14 +563,23 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
     if not isinstance(includes, list):
         includes = []
 
-    socket_element = ET.Element("Socket", Name=interface[0]) if len(interface) > 0 else ""
+    socket_element = (
+        ET.Element("Socket", Name=interface[0]) if len(interface) > 0 else ""
+    )
     socket_prefix = interface[1] if len(interface) > 1 else ""
 
     signals = root.findall(".//Signal")
 
     for port in root.findall("./InterfaceDefPort"):
         port_id = port.find("ID").text
-        signal = next((sign for sign in signals if port.find("./XRefSignal/XRefTargetID").text in sign.find("ID").text), None)
+        signal = next(
+            (
+                sign
+                for sign in signals
+                if port.find("./XRefSignal/XRefTargetID").text in sign.find("ID").text
+            ),
+            None,
+        )
 
         signal_keys = [k.text for k in signal.findall("./Property/Key")]
         signal_values = [v.text for v in signal.findall("./Property/Value")]
@@ -579,53 +588,95 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
         port_values = [v.text for v in port.findall("./Property/Value")]
 
         if port_id in excludes:
-            add_comment("excluding ", signal_keys, signal_values, port_keys, port_values, signal, port)
+            add_comment(
+                "excluding ",
+                signal_keys,
+                signal_values,
+                port_keys,
+                port_values,
+                signal,
+                port,
+            )
 
         elif len(includes) > 0 and port_id not in includes:
-            add_comment("not including ", signal_keys, signal_values, port_keys, port_values, signal, port)
-            
-        elif "owner" in port_keys and port_values is not None and port_values != 'concept':
+            add_comment(
+                "not including ",
+                signal_keys,
+                signal_values,
+                port_keys,
+                port_values,
+                signal,
+                port,
+            )
+
+        elif (
+            "owner" in port_keys
+            and port_values is not None
+            and port_values != "concept"
+        ):
             pass
 
-        elif not("owner" in signal_keys and signal_values is not None) or "owner" in signal_keys and signal_values != 'concept':
+        elif (
+            not ("owner" in signal_keys and signal_values is not None)
+            or "owner" in signal_keys
+            and signal_values != "concept"
+        ):
             pass
-        
+
         else:
-            member = ET.Element('Member')
-            member.set('wire', signal.find("./ID").text)
+            member = ET.Element("Member")
+            member.set("wire", signal.find("./ID").text)
             my_name = []
-            
+
             port_short_name = root.find(".//ShortName")
             signal_short_name = root.find(".//Signal//ShortName")
             port_name = port.find(".//Name")
-            
-            if port_short_name is not None and port_short_name.text and len(port_short_name.text) > 0:
+
+            if (
+                port_short_name is not None
+                and port_short_name.text
+                and len(port_short_name.text) > 0
+            ):
                 my_name.append(port_short_name.text.replace('"', ""))
-            elif signal_short_name is not None and signal_short_name.text and len(signal_short_name.text) > 0:
+            elif (
+                signal_short_name is not None
+                and signal_short_name.text
+                and len(signal_short_name.text) > 0
+            ):
                 my_name.append(signal_short_name.text.replace('"', ""))
             else:
                 if port_name is not None and port_name.text:
-                    modified_name = re.sub(r'^(.*?)_a?[io]s*$', r'\1', port_name.text)
-                    my_name.append(' '.join(modified_name.split()))
-            
+                    modified_name = re.sub(r"^(.*?)_a?[io]s*$", r"\1", port_name.text)
+                    my_name.append(" ".join(modified_name.split()))
+
             name = socket_prefix + my_name[0]
             if signal.find(".//DataType//Vector") is not None:
                 for vec in signal.findall(".//DataType//Vector"):
                     vector_element = ET.SubElement(member, "Vector")
                     vector_element.text = vec.text
-            
+
             port_direction = port.find(".//Direction")
-            if reverse == 1 and port_direction is not None and port_direction.text == "in":
-                add_direction(member, 'out')
-            elif reverse == 1 and port_direction is not None and port_direction.text == "out":
-                add_direction(member, 'in')
+            if (
+                reverse == 1
+                and port_direction is not None
+                and port_direction.text == "in"
+            ):
+                add_direction(member, "out")
+            elif (
+                reverse == 1
+                and port_direction is not None
+                and port_direction.text == "out"
+            ):
+                add_direction(member, "in")
             else:
                 if port_direction is not None:
                     for direct in port.findall(".//Direction"):
                         add_direction(member, direct.text)
-            
 
-def add_comment(text_comment, signal_keys, signal_values, port_keys, port_values, signal, port):
+
+def add_comment(
+    text_comment, signal_keys, signal_values, port_keys, port_values, signal, port
+):
     if ("owner" in port_keys and "concept" in port_values) or (
         "owner" in signal_keys and "concept" in signal_values
     ):
@@ -644,80 +695,82 @@ def process_filters_grouped(filters):
         root = tree.getroot()
     except Exception as e:
         print(e)
-    
+
     result = []
-    
+
     name_groups = defaultdict(list)
     for filter_elem in root:
-        name = filter_elem.get('Name')
+        name = filter_elem.get("Name")
         if name:
             name_groups[name].append(filter_elem)
-    
+
     for name in sorted(name_groups.keys()):
         group = name_groups[name]
-        
-        default_values = [elem for elem in group if elem.tag == 'DefaultValue']
+
+        default_values = [elem for elem in group if elem.tag == "DefaultValue"]
         if not default_values:
             continue
-        
-        parameter = ET.Element('Parameter')
-        parameter.set('Name', name)
-        parameter.set('Type', 'FILTER')
-        
-        initial_values = [elem for elem in group if elem.tag == 'InitialValue']
+
+        parameter = ET.Element("Parameter")
+        parameter.set("Name", name)
+        parameter.set("Type", "FILTER")
+
+        initial_values = [elem for elem in group if elem.tag == "InitialValue"]
         have_init = len(initial_values)
-        
+
         have_spec = []
         text_groups = defaultdict(list)
         for elem in group:
             text = elem.text or ""
             text_groups[text].append(elem)
-        
+
         for text, elems in text_groups.items():
-            default_values_in_text_group = [e for e in elems if e.tag == 'DefaultValue']
+            default_values_in_text_group = [e for e in elems if e.tag == "DefaultValue"]
             if default_values_in_text_group:
-                non_designation_count = sum(1 for e in elems if e.get('Style') != 'Designation')
+                non_designation_count = sum(
+                    1 for e in elems if e.get("Style") != "Designation"
+                )
                 have_spec.append(non_designation_count)
-        
+
         for text in sorted(text_groups.keys()):
             elems = text_groups[text]
-            
-            default_values_in_text_group = [e for e in elems if e.tag == 'DefaultValue']
+
+            default_values_in_text_group = [e for e in elems if e.tag == "DefaultValue"]
             if not default_values_in_text_group:
                 continue
-                
-            value_elems = [e for e in elems if e.tag == 'Value']
+
+            value_elems = [e for e in elems if e.tag == "Value"]
             if value_elems:
-                ph = ET.Element('ph')
-                ph.set('Style', value_elems[0].get('Style', ''))
+                ph = ET.Element("ph")
+                ph.set("Style", value_elems[0].get("Style", ""))
                 ph.text = text
                 parameter.append(ph)
                 continue
-                
-            initial_value_elems = [e for e in elems if e.tag == 'InitialValue']
+
+            initial_value_elems = [e for e in elems if e.tag == "InitialValue"]
             if initial_value_elems:
-                ph = ET.Element('ph')
-                ph.set('Style', initial_value_elems[0].get('Style', ''))
+                ph = ET.Element("ph")
+                ph.set("Style", initial_value_elems[0].get("Style", ""))
                 ph.text = text
                 parameter.append(ph)
                 continue
-                
+
             if have_init > 0:
                 continue
-                
+
             if any(spec > 0 for spec in have_spec):
                 continue
-                
-            non_value_elems = [e for e in elems if e.tag != 'Value']
+
+            non_value_elems = [e for e in elems if e.tag != "Value"]
             if non_value_elems:
-                ph = ET.Element('ph')
-                ph.set('Style', non_value_elems[0].get('Style', ''))
+                ph = ET.Element("ph")
+                ph.set("Style", non_value_elems[0].get("Style", ""))
                 ph.text = text
                 parameter.append(ph)
-        
+
         if len(parameter) > 0:
             result.append(parameter)
-    
+
     return result
 
 
@@ -1395,6 +1448,318 @@ def parse_essence(input_str: str) -> list:
     return to_tree_essence(patched_str, consts)
 
 
+def num_essence(
+    in_list: list, context: str, warning="recover"
+) -> Decimal:  # evaluate syntax tree for a numeric target
+    if in_list.get("kind") == "and":
+        return (
+            0
+            if (
+                num_essence(in_list[0], context) == 0
+                or num_essence(in_list[1], context) == 0
+            )
+            else 1
+        )
+    elif in_list.get("kind") == "or":
+        return (
+            0
+            if (
+                num_essence(in_list[0], context) == 0
+                or num_essence(in_list[1], context) == 0
+            )
+            else 1
+        )
+    if in_list.get("kind") == "xor":
+        return (
+            0
+            if (num_essence(in_list[0], context) == num_essence(in_list[1], context))
+            else 1
+        )
+    elif (
+        in_list.get("kind") in ("ge", "le", "lt", "gt", "eq", "ne", "nm", "ma")
+        and in_list[0].get("type") == "string"
+        or in_list[1].get("type") == "string"
+    ):
+        left = text_essence(in_list[0], context)
+        right = text_essence(in_list[1], context)
+        if in_list.get("kind") == "nm":
+            return 0 if str(right) in str(left) else 1
+        elif in_list.get("kind") == "ma":
+            return 1 if str(right) in str(left) else 0
+        elif in_list.get("kind") == "eq":
+            return 1 if compare(left, right) == 0 else 0
+        elif in_list.get("kind") == "ne":
+            return 0 if compare(left, right) == 0 else 1
+        elif in_list.get("kind") == "lt":
+            return 1 if compare(left, right) < 0 else 0
+        elif in_list.get("kind") == "ge":
+            return 0 if compare(left, right) < 0 else 1
+        elif in_list.get("kind") == "gt":
+            return 1 if compare(left, right) > 0 else 0
+        elif in_list.get("kind") == "le":
+            return 0 if compare(left, right) > 0 else 1
+    elif in_list.get("kind") == "ge":
+        return (
+            0
+            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
+            else 1
+        )
+    elif in_list.get("kind") == "le":
+        return (
+            0
+            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
+            else 1
+        )
+    elif in_list.get("kind") == "gt":
+        return (
+            1
+            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
+            else 0
+        )
+    elif in_list.get("kind") == "lt":
+        return (
+            1
+            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
+            else 0
+        )
+    elif in_list.get("kind") == "eq":
+        return (
+            1
+            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
+            else 0
+        )
+    elif in_list.get("kind") == "ne":
+        return (
+            0
+            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
+            else 1
+        )
+    elif in_list.get("kind") == "add":
+        return num_essence(in_list[0], context) + num_essence(in_list[1], context)
+    elif in_list.get("kind") == "sub":
+        return num_essence(in_list[0], context) - num_essence(in_list[1], context)
+    elif in_list.get("kind") == "mul":
+        return num_essence(in_list[0], context) * num_essence(in_list[1], context)
+    elif in_list.get("kind") == "div":
+        divisor = num_essence(in_list[1], context)
+        if divisor == 0:
+            raise ValueError("ERROR: Divide by 0!")
+        return num_essence(in_list[0], context) // divisor
+    elif in_list.get("kind") == "mod":
+        class_var = num_essence(in_list[1], context)
+        if class_var == 0:
+            raise ValueError("ERROR: modulo 0!")
+        return num_essence(in_list[0], context) % class_var
+    elif in_list.get("kind") == "exp":
+        b = num_essence(in_list[0], context)
+        e = num_essence(in_list[1], context)
+        if b == 1:
+            return 1
+        elif b == 0:
+            return 0
+        elif e < 1:
+            return 1
+        elif e == 1:
+            return b
+        elif False and b % 2 == 0 and e > 63:
+            return power(2, 64)
+        elif False and b != 2 and b % 2 == 0:
+            h = power(b / 2, int(e))
+            return int((h % power(2, 64 - e)) * power(2, e))
+        elif b == 2:
+            return Decimal(power2(int(e)))
+        else:
+            return Decimal(power(b, int(e)))
+    elif in_list.get("kind") == "not":
+        return 1 if num_essence(in_list[0], context) == 0 else 0
+    elif in_list.get("kind") == "const" and in_list.get("type") in ("int", "bool"):
+        if in_list.text.upper().startswith("0B"):
+            return str2base(in_list.text[2:], 2)
+        elif in_list.text.upper().startswith("0X"):
+            return str2base(in_list.text[2:], 16)
+        elif in_list.text.upper().startswith("0O"):
+            return str2base(in_list.text[2:], 8)
+        else:
+            return in_list.text
+    elif (
+        in_list.get("kind") == "const"
+        and in_list.get("type") == "string"
+        and re.match(r"^\d+$", in_list.text)
+    ):
+        return Decimal(in_list.text)
+    elif in_list.get("kind") == "const":
+        if warning == "fatal":
+            raise ValueError(f"ERROR: Non-numeric value {in_list}")
+        else:
+            print("Replaced by -1")
+            return -1
+    elif in_list.get("kind") == "var":
+        get_parameter = ""  # дописать
+    elif in_list.get("kind") == "func" and len(in_list) != 3:
+        raise ValueError(
+            f"ERROR: Wrong number of parameters for function {in_list[0].text}"
+        )
+    elif in_list.get("kind") == "func" and in_list[0].text == "min":
+        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+        return paras[0] if paras[0] < paras[1] else paras[1]
+    elif in_list.get("kind") == "func" and in_list[0].text == "max":
+        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+        return paras[0] if paras[0] > paras[1] else paras[1]
+    elif in_list.get("kind") == "func" and in_list[0].text == "rshift":
+        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+        if paras[1] == 0:
+            return paras[0]
+        elif paras[1] < 0:
+            return paras[0] * Decimal(power(2, int(-paras[1])))
+        else:
+            return paras[0] // Decimal(power(2, int(paras[1])))
+    elif in_list.get("kind") == "func" and in_list[0].text == "lshift":
+        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+        if paras[1] == 0:
+            return paras[0]
+        elif paras[1] < 0:
+            return paras[0] // Decimal(power(2, int(-paras[1])))
+        else:
+            return paras[0] * Decimal(power(2, int(paras[1])))
+    elif in_list.get("kind") == "func" and in_list[0].text == "log":
+        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+        return log(paras[0], paras[1])
+    elif in_list.get("kind") == "func" and in_list[0].text == "pos":
+        index = Decimal(num_essence(in_list[2], context))
+        paras = []
+        if in_list[1].get("kind") == "func" and in_list[1][0].text == "list":  # ???
+            for i, p in enumerate(in_list[1]):
+                if i - 2 == index:  # ???
+                    paras.append(p)
+        elif in_list[1].get("kind") == "var":
+            get_parameter = ""  # дописать
+            if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
+                tree = parse_essence(get_parameter[0])
+                if tree.get("kind") == "func" and tree[0].text == "list":
+                    for i, tr in enumerate(tree):
+                        if i - 2 == index:  # ???
+                            paras.append(tr)
+                else:
+                    raise ValueError(
+                        f'ERROR: Invalid first parameter in "pos({in_list[1].text})!"'
+                    )
+            else:
+                if warning == "fatal":
+                    raise ValueError(f"ERROR: Unresolved parameter {in_list.text}!")
+                else:
+                    print("Replaced by -1")
+                    return -1
+        else:
+            raise ValueError('ERROR: Invalid first parameter in "pos()"!')
+        if len(paras) > 0:
+            return num_essence(paras[0], context)
+        else:
+            if warning == "fatal":
+                raise ValueError(
+                    f"ERROR: pos({in_list[1]}, {index}) index out of bounds!"
+                )
+            else:
+                print("pos(...) replaced by -1")
+                return -1
+    else:
+        if warning == "fatal":
+            raise ValueError(f"ERROR: Non-numeric value !")
+        else:
+            print("Replaced by -1<")
+            return -1
+
+
+def integer_essence(
+    input_str: str, context: str = None, varmap: list = None
+) -> Decimal:
+    if context is None:
+        return integer_essence(input_str, "0")
+    elif varmap is None:
+        return num_essence(parse_essence(input_str), context)
+    else:
+        return num_essence(
+            prune_essence(prune_essence(input_str), context, varmap, 0), context
+        )
+        
+
+def text_essence():
+    pass
+
+
+def prune_essence():
+    pass
+
+
+def log(number: Decimal, base: Decimal) -> Decimal:
+    return logh(number, base, base * base, 0)
+
+
+def logh(number: Decimal, base: Decimal, base2: Decimal, n: Decimal) -> Decimal:
+    if number < base:
+        return n
+    elif number < base2:
+        return n + 1
+    elif number == base2:
+        return n + 2
+    else:
+        return logh(number // base2, base, base2, n + 2)
+
+
+def power(base: float, exp: int) -> float:
+    if exp < 0:
+        return powerh(1.0 / base, -exp)
+    elif exp == 0:
+        return 1.0
+    else:
+        return powerh(base, exp)
+
+
+def powerh(base: float, exp: int) -> float:
+    if exp == 1:
+        return base
+    elif exp == 2:
+        return base * base
+    elif exp == 3:
+        return base * base * base
+    else:
+        h = powerh(base, exp // 2)
+        return h * h if exp % 2 == 0 else base * h * h
+
+
+def power2(exp: int) -> Decimal:
+    if exp < 0:
+        return Decimal(1.0 / power2(-exp))
+    elif exp == 0:
+        return 1
+    elif exp == 1:
+        return 2
+    elif exp == 2:
+        return 4
+    elif exp == 3:
+        return 8
+    else:
+        h = Decimal(power2(exp // 2))
+        return h * h if exp % 2 == 0 else 2 * h * h
+
+
+def str2base(input_str: str, base: int) -> Decimal:
+    input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
+    symbols = "0123456789ABCDEF"
+    if len(input_str) == 0 or not all(c in symbols for c in input_str):
+        raise ValueError("ERROR: the string contains invalid characters or is empty!")
+    value = Decimal(0)
+    for i, char in enumerate(reversed(input_str)):
+        digit_value = symbols.index(char)
+        value += Decimal(digit_value) * (Decimal(base) ** i)
+    return value
+
+
+def compare(left, right):
+    if left == right:
+        return 0
+    return -1 if left < right else 1
+
+
 def main():
     try:
         Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
@@ -1428,21 +1793,21 @@ def main():
 
         # with open("output.xml", "w", encoding="utf-8") as f:
         #     f.write(pretty_xml)
-        
-        result = process_filters_grouped('./FILTERS.xml')
-        
-        root = ET.Element('root')
+
+        result = process_filters_grouped("./FILTERS.xml")
+
+        root = ET.Element("root")
         for element in result:
             root.append(element)
 
         tree = ET.ElementTree(root)
 
         from xml.dom import minidom
-        xml_str = ET.tostring(root, encoding='utf-8', method='xml')
+
+        xml_str = ET.tostring(root, encoding="utf-8", method="xml")
         pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
-        with open("output.xml", 'w', encoding='utf-8') as file:
+        with open("output.xml", "w", encoding="utf-8") as file:
             file.write(pretty_xml)
-        
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
