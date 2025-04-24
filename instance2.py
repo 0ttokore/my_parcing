@@ -9,6 +9,7 @@ from collections import defaultdict
 from xml.dom.minidom import parseString
 from typing import List
 from decimal import Decimal
+import math
 
 
 logging.basicConfig(level=logging.INFO)
@@ -437,6 +438,12 @@ def get_class_id(root):
 
 
 def get_shell(root, effective_filter):
+    try:
+        tree = ET.parse(root)
+        root = tree.getroot()
+    except Exception as e:
+        print(e)
+        
     ref = [
         ciref.find("ComponentInstanceRef").text
         for ciref in root.findall(".//ComponentInstanceReference")
@@ -897,7 +904,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
             subtree.append(root)
             return to_tree_essence(
-                f"{lbrack.replace("dec\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r"dec\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"hex\d*$", lbrack):
@@ -914,7 +921,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
             subtree.append(root)
             return to_tree_essence(
-                f"{lbrack.replace("hex\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r"hex\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"bin\d*$", lbrack):
@@ -931,7 +938,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
             subtree.append(root)
             return to_tree_essence(
-                f"{lbrack.replace("bin\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r"bin\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"eng$", lbrack):
@@ -1229,7 +1236,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op = ET.SubElement(
                 root, "op", attrib={"kind": "add", "type": "int", "prio": "3"}
             )
-            op.append(to_tree_essence(re.sub("-\s*$"), "", subl), consts)
+            op.append(to_tree_essence(re.sub(r"-\s*$"), "", subl), consts)
             op.append(to_tree_essence(subr, consts))
         elif sub < add and re.match(r"(\*|\||%)\s*$", subl):
             root.append(to_tree_essence(f"{subl}§{subr}", consts))
@@ -1242,8 +1249,8 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "*" in input_str or "/" in input_str:  # mul/div: * /
-        mulr = re.sub("^.*\*", "", input_str)
-        divr = re.sub("^.*/", "", input_str)
+        mulr = re.sub(r"^.*\*", "", input_str)
+        divr = re.sub(r"^.*/", "", input_str)
         mul = len(mulr)
         div = len(divr)
 
@@ -1449,7 +1456,7 @@ def parse_essence(input_str: str) -> list:
 
 
 def num_essence(
-    in_list: list, context: str, warning="recover"
+    in_list: list, context: str, paramaps2, warning="recover"
 ) -> Decimal:  # evaluate syntax tree for a numeric target
     if in_list.get("kind") == "and":
         return (
@@ -1594,7 +1601,34 @@ def num_essence(
             print("Replaced by -1")
             return -1
     elif in_list.get("kind") == "var":
-        get_parameter = ""  # дописать
+        try:
+            tree = ET.parse(paramaps2)
+            root = tree.getroot()
+        except Exception as e:
+            print(e)
+        
+        search_key = f"{context}:{in_list.text}"
+        parameter_node = root.find(f".//{search_key}")
+        
+        if parameter_node is None:
+            return []
+
+        value_nodes = [
+            child.text for child in parameter_node.findall("*")
+            if child.tag.endswith('Value')
+        ]
+        get_parameter = sorted(value_nodes, key=lambda x: len(x))
+        if len(get_parameter) > 0 and len(get_parameter[0]):
+            return num_essence(parse_essence(get_parameter[0], context))
+        else:
+            if warning == "fatal":
+                raise ValueError(
+                    f"ERROR: Unresolved parameter {in_list.text}!"
+                )
+            else:
+                print("Replaced by -1")
+                return -1
+        
     elif in_list.get("kind") == "func" and len(in_list) != 3:
         raise ValueError(
             f"ERROR: Wrong number of parameters for function {in_list[0].text}"
@@ -1632,7 +1666,24 @@ def num_essence(
                 if i - 2 == index:  # ???
                     paras.append(p)
         elif in_list[1].get("kind") == "var":
-            get_parameter = ""  # дописать
+            try:
+                tree = ET.parse(paramaps2)
+                root = tree.getroot()
+            except Exception as e:
+                print(e)
+        
+            search_key = f"{context}:{in_list[1].text}"
+            parameter_node = root.find(f".//{search_key}")
+            
+            if parameter_node is None:
+                return []
+
+            value_nodes = [
+                child.text for child in parameter_node.findall("*")
+                if child.tag.endswith('Value')
+            ]
+            get_parameter = sorted(value_nodes, key=lambda x: len(x))
+            
             if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
                 tree = parse_essence(get_parameter[0])
                 if tree.get("kind") == "func" and tree[0].text == "list":
@@ -1682,12 +1733,165 @@ def integer_essence(
         )
         
 
-def text_essence():
-    pass
+def text_essence(input_data, context, para_maps2=None, warning="fatal", suppress=""):
+    if not input_data.get('kind'):
+        return ""
+        
+    kind = input_data.get('kind')
+    
+    if kind == 'cat':
+        return text_essence(input_data['children'][0], context, para_maps2, warning, suppress) + \
+               text_essence(input_data['children'][1], context, para_maps2, warning, suppress)
+               
+    elif kind == 'const' and input_data.get('text') == '#':
+        return input_data.get('text')
+        
+    elif kind == 'const':
+        return input_data.get('text', '').replace('&amp;', '&')
+        
+    elif kind == 'var' and input_data.get('text') == 'suppress' and len(suppress) > 0:
+        return suppress
+        
+    elif kind == 'var':
+        get_parameter = []
+        
+        if para_maps2:
+            key = f"{context}:{input_data.get('text')}"
+            for param in para_maps2.get_parameters(key):
+                get_parameter.append(param.replace('"', ''))
+                
+            if para_maps2.has_filter(context):
+                get_parameter.extend(get_filter(input_data.get('text'), context))
+                
+        if not get_parameter:
+            get_parameter.append(input_data.get('text'))
+            
+        if len(get_parameter) < 2:
+            error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"!'
+            if warning == 'fatal':
+                raise ValueError(error_msg)
+            else:
+                print(error_msg)
+                print(f'Replaced by "{get_parameter[0]}"')
+                
+        return get_parameter[0]
+        
+    elif kind == 'func' and input_data['children'][0].get('text') == 'pos' and len(input_data['children']) == 3:
+        index = num_essence(input_data['children'][2], context, para_maps2, warning)
+        
+        second_child = input_data['children'][1]
+        paras = []
+        
+        if second_child.get('kind') == 'func' and second_child['children'][0].get('text') == 'list':
+            for pos, child in enumerate(second_child['children'][1:], 0):
+                if pos == index:
+                    paras.append(child)
+        elif second_child.get('kind') == 'var':
+            get_parameter = []
+            if para_maps2:
+                key = f"{context}:{second_child.get('text')}"
+                for param in para_maps2.get_parameters(key):
+                    get_parameter.append(param)
+                    
+            if get_parameter and len(get_parameter[0]) > 0:
+                tree = parse_essence(get_parameter[0])
+                if tree.get('kind') == 'func' and tree['children'][0].get('text') == 'list':
+                    for pos, child in enumerate(tree['children'][1:], 0):
+                        if pos == index:
+                            paras.append(child)
+                else:
+                    error_msg = f'ERROR: Invalid first parameter in "pos({second_child.get("text")},...)"!'
+                    raise ValueError(error_msg)
+            else:
+                error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"'
+                if warning == 'fatal':
+                    raise ValueError(error_msg)
+                else:
+                    print(error_msg)
+                    print("Replaced by -1")
+                    return "-1"
+        else:
+            raise ValueError("ERROR: Invalid first parameter in 'pos()'!")
+            
+        if paras:
+            return text_essence(paras[0], context, para_maps2, warning, suppress)
+        else:
+            error_msg = f'ERROR: pos({input_data["children"][1]},{index}) index out of bounds!'
+            if warning == 'fatal':
+                raise ValueError(error_msg)
+            else:
+                print(error_msg)
+                print("Replaced by -1")
+                return "-1"
+                
+    elif kind == 'func' and input_data['children'][0].get('text') == 'dec' and len(input_data['children']) == 3:
+        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+        s = str(paras[1])
+        padding = '0' * (int(paras[0]) - len(s))
+        return padding + s
+        
+    elif kind == 'func' and input_data['children'][0].get('text') == 'hex' and len(input_data['children']) == 3:
+        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+        s = decimal_to_hex(paras[1])
+        padding = '0' * (int(paras[0]) - len(s))
+        return padding + s
+        
+    elif kind == 'func' and input_data['children'][0].get('text') == 'bin' and len(input_data['children']) == 3:
+        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+        s = decimal_to_bin(paras[1])
+        padding = '0' * (int(paras[0]) - len(s))
+        return padding + s
+        
+    elif kind == 'func' and input_data['children'][0].get('text') == 'eng' and len(input_data['children']) == 2:
+        val = num_essence(input_data['children'][1], context, para_maps2, warning)
+        
+        if val >= 1073741824:
+            return f"{math.floor(val / 10737418.24) / 100}GB"
+        elif val >= 1048576:
+            return f"{math.floor(val / 10485.76) / 100}MB"
+        elif val >= 1024:
+            return f"{math.floor(val / 10.24) / 100}KB"
+        else:
+            return f"{val}B"
+    
+    else:
+        return str(num_essence(input_data, context, para_maps2, warning))
+
+
+def decimal_to_hex(decimal_value):
+    return format(int(decimal_value), 'x')
+
+
+def decimal_to_bin(decimal_value):
+    return format(int(decimal_value), 'b')
 
 
 def prune_essence():
     pass
+
+
+def get_filter(parameter_name: str,
+               context: str,
+               para_maps: ET.Element
+               ) -> List:
+
+    if parameter_name.startswith('{'):
+        m = re.match(r'^\{(.)\}.$', parameter_name)
+        key = m.group(1) if m else parameter_name
+    else:
+        key = parameter_name
+
+    filter_root = para_maps.find(f".//filter[@Int_Class_ID='{context}']")
+    if filter_root is None:
+        print(f"ERROR: Undefined filter context '{context}'")
+        return []
+
+    values = []
+    for child in filter_root:
+        if child.tag.endswith('Value'):
+            values.append(child.text or "")
+    values.sort(key=len)
+    return [values[0]] if values else []
 
 
 def log(number: Decimal, base: Decimal) -> Decimal:
@@ -1776,38 +1980,18 @@ def main():
             "props",
             "otherprops",
         ]
-        input = "C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml"
-        filter = find_filter(
-            input_file="C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml",
-            filter=filter,
-        )
-        data = open_lookup_file(Iproot)
+        input = "./instance_sheet_TC49x.xml"
+        # filter = find_filter(
+        #     input_file="C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml",
+        #     filter=filter,
+        # )
+        #data = open_lookup_file(Iproot)
         # data = process_df(drive,disc,data)
         """data.to_csv('lookup_file.csv')
         IPdefs = collect_parameters(filter_params,input, filter,data)"""
-        xml_str = create_xml(
-            toolversion, Iproot, data, "IPdefs.xml", filter, Doc_Author
-        )
-
-        # pretty_xml = parseString(xml_str).toprettyxml(indent="  ")
-
-        # with open("output.xml", "w", encoding="utf-8") as f:
-        #     f.write(pretty_xml)
-
-        result = process_filters_grouped("./FILTERS.xml")
-
-        root = ET.Element("root")
-        for element in result:
-            root.append(element)
-
-        tree = ET.ElementTree(root)
-
-        from xml.dom import minidom
-
-        xml_str = ET.tostring(root, encoding="utf-8", method="xml")
-        pretty_xml = minidom.parseString(xml_str).toprettyxml(indent="  ")
-        with open("output.xml", "w", encoding="utf-8") as file:
-            file.write(pretty_xml)
+        # xml_str = create_xml(
+        #     toolversion, Iproot, data, "IPdefs.xml", filter, Doc_Author
+        # )
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")

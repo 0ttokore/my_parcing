@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def prune_essence(
+    paramaps2,
     in_list: list,
     context: str = None,
     varmap: list = None,
@@ -26,6 +27,12 @@ def prune_essence(
     elif varmap is None:
         return prune_essence(in_list, context, [], 0)
     else:
+        try:
+            tree = ET.parse(paramaps2)
+            root = tree.getroot()
+        except Exception as e:
+            print(e)
+
         left = [prune_essence(in_list[0], context, varmap, pol)] if in_list else []
         right = (
             [prune_essence(in_list[1], context, varmap, pol)]
@@ -82,19 +89,24 @@ def prune_essence(
                     for i, r in enumerate(right):
                         if i - 2 == index:
                             paras.append(r)
-                elif right.get("kind") == "var":  # дописать
-                    pass
+                elif right.get("kind") == "var" and root.find(
+                    f".//{context}:{right.text}"
+                ):  # дописать
+                    parameter_node = root.find(f".//{context}:{right.text}")
+                    value_nodes = [
+                        child.text
+                        for child in parameter_node.findall("*")
+                        if child.tag.endswith("Value") and child.text is not None
+                    ]
+                    get_parameter = sorted(value_nodes, key=len)
 
-                if len(paras) > 0:
-                    return prune_essence(paras[0], context, varmap, pol)
-                else:
-                    if warning == "fatal":
-                        raise ValueError(
-                            f"ERROR: pos({right}, {index}) index out of bounds!"
-                        )
-                    else:
-                        print("pos(...) replaced by -1")
-                        return -1
+                    for pm2 in get_parameter:
+                        if root.find(".//DataType") is not None:
+                            if root.find(".//DataType").get("xsi:type") == "Array":
+                                tree = parse_essence(
+                                    re.sub(r"^&quot;(list.*)&quot;$", r"1", pm2)
+                                )
+
             else:
                 op_element = ET.Element("op")
                 for attr in in_list.attrib:
@@ -142,7 +154,11 @@ def prune_essence(
             pass
         elif in_list.get("kind") == "var":  # дописать
             pass
-        elif in_list.get("kind") == "var" and len(varmap) > 0:  # дописать
+        elif (
+            in_list.get("kind") == "var"
+            and len(varmap) > 0
+            and varmap.get("Name") == in_list.text
+        ):  # дописать
             pass
         elif in_list.get("kind") == "var":  # дописать
             pass
@@ -257,8 +273,14 @@ def prune_essence(
             for attr in left.attrib:
                 op_element.set(attr, left.attrib[attr])
             op_element.set("type", "string")
-            if in_list[0].get("kind") == "var" and len(varmap) != 0:  # дописать
-                pass
+            if (
+                in_list[0].get("kind") == "var"
+                and len(varmap) != 0
+                and varmap.get("Name") == in_list[0].text
+                and varmap.get("fmt")
+            ):  # дописать
+                varmap_el = [el for el in varmap if el.get("Name") == in_list[0].text]
+
         elif (
             in_list.get("kind") == "sub"
             and right.get("kind") == "const"
@@ -334,19 +356,108 @@ def prune_essence(
             for attr in in_list.attrib:
                 op_element.set(attr, in_list.attrib[attr])
             op = ET.SubElement(op_element, "op")
-            op.set("pol", -left.get("pol"))
+            op.set("pol", str(-int(left.get("pol"))))
             for attr in left.attrib:
-                op.set(attr, left.attrib[attr])
-            # дописать фильтр
+                if attr != "pol":
+                    op.set(attr, left.attrib[attr])
+            if left.text:
+                op.text = left.text
+            op_element.append(right)
+        elif in_list.get("kind") == "ma" and left.get("pol") != 0:
+            op_element = ET.Element("op")
+            op_element.set("pol", pol)
+            for attr in in_list.attrib:
+                op_element.set(attr, in_list.attrib[attr])
+            op_element.append(left)
+            op_element.append(right)
+        elif (
+            in_list.get("kind") in ("ma", "eq")
+            and not (left.get("kind"))
+            and not (right.get("kind"))
+        ):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 1
+        elif (
+            in_list.get("kind") in ("nm", "ne")
+            and not (left.get("kind"))
+            and not (right.get("kind"))
+        ):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 0
+        elif in_list.get("kind") in ("ma", "eq") and not (left.get("kind")):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 0
+        elif in_list.get("kind") in ("nm", "ne") and not (left.get("kind")):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 1
+        elif in_list.get("kind") in ("ma", "ne") and not (right.get("kind")):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 1
+        elif in_list.get("kind") in ("nm", "eq") and not (right.get("kind")):
+            ET.Element(
+                "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+            ).text = 0
+        else:
+            res = []
+            op_element = ET.Element("op")
+            for attr in in_list.attrib:
+                op_element.set(attr, in_list.attrib[attr])
+            op_element.append(left)
+            op_element.append(right)
+            res.append(op_element)
+
+            if (left.get("kind") == "const" and left.text == "#") or (
+                right.get("kind") == "const" and right.text == "#"
+            ):
+                return res
+            elif (
+                left.get("kind") == "const"
+                and right.get("kind") == "const"
+                and in_list.get("type") == "int"
+            ):
+                ET.Element(
+                    "op", attrib={"kind": "const", "type": "int", "prio": "8"}
+                ).text = num_essence(res, "0")
+            elif (
+                left.get("kind") == "const"
+                and right.get("kind") == "const"
+                and in_list.get("type") == "bool"
+            ):
+                ET.Element(
+                    "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
+                ).text = num_essence(res, "0")
+            elif (
+                left.get("kind") == "const"
+                and right.get("kind") == "const"
+                and in_list.get("type") == "string"
+            ):
+                ET.Element(
+                    "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+                ).text = text_essence(res, "0")
+            else:
+                return res
 
 
 def num_essence():
     pass
 
 
+def text_essence():
+    pass
+
+
+def parse_essence():
+    pass
+
+
 def main():
     try:
-        Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
+        Iproot = "./parsed_context_spirit.xml"
         filter = None
         filter_params = [
             "audience",
@@ -365,23 +476,9 @@ def main():
         drive = "file:"
         disc = ""
 
-        root = ET.Element("Essence")
-        op = ET.SubElement(
-            root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
-        )
-        ET.SubElement(
-            op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-        ).text = "'eng'"
-        ET.SubElement(
-            op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-        ).text = "'ru'"
+        
 
-        # ET.dump(root[0])
-
-        # ch = root.findall("./*")
-        # ET.dump(ch[0])
-
-        print(op.attrib)
+       
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
