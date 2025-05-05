@@ -27,12 +27,6 @@ def prune_essence(
     elif varmap is None:
         return prune_essence(in_list, context, [], 0)
     else:
-        try:
-            tree = ET.parse(paramaps2)
-            root = tree.getroot()
-        except Exception as e:
-            print(e)
-
         left = [prune_essence(in_list[0], context, varmap, pol)] if in_list else []
         right = (
             [prune_essence(in_list[1], context, varmap, pol)]
@@ -89,7 +83,7 @@ def prune_essence(
                     for i, r in enumerate(right):
                         if i - 2 == index:
                             paras.append(r)
-                elif right.get("kind") == "var" and root.find(
+                elif right.get("kind") == "var" and root.find( # дописать
                     f".//{context}:{right.text}"
                 ):  # дописать
                     parameter_node = root.find(f".//{context}:{right.text}")
@@ -100,7 +94,7 @@ def prune_essence(
                     ]
                     get_parameter = sorted(value_nodes, key=len)
 
-                    for pm2 in get_parameter:
+                    for pm2 in get_parameter: # дописать
                         if root.find(".//DataType") is not None:
                             if root.find(".//DataType").get("xsi:type") == "Array":
                                 tree = parse_essence(
@@ -151,7 +145,19 @@ def prune_essence(
                 "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = suppress
         elif in_list.get("kind") == "var":  # дописать
-            pass
+            if paramaps2:
+                key = f"{context}:{in_list.text}"
+                for param in paramaps2.get_parameters(key):
+                    get_parameter.append(param.replace('"', ''))
+                    
+                if paramaps2.has_filter(context):
+                    get_parameter.extend(get_filter(in_list.text, context))
+                
+            
+            
+            
+            
+            
         elif in_list.get("kind") == "var":  # дописать
             pass
         elif (
@@ -453,6 +459,30 @@ def text_essence():
 
 def parse_essence():
     pass
+
+
+def get_filter(parameter_name: str,
+               context: str,
+               para_maps: ET.Element
+               ) -> List:
+
+    if parameter_name.startswith('{'):
+        m = re.match(r'^\{(.)\}.$', parameter_name)
+        key = m.group(1) if m else parameter_name
+    else:
+        key = parameter_name
+
+    filter_root = para_maps.find(f".//filter[@Int_Class_ID='{context}']")
+    if filter_root is None:
+        print(f"ERROR: Undefined filter context '{context}'")
+        return []
+
+    values = []
+    for child in filter_root:
+        if child.tag.endswith('Value'):
+            values.append(child.text or "")
+    values.sort(key=len)
+    return [values[0]] if values else []
 
 
 def main():

@@ -8,7 +8,6 @@ import copy
 from collections import defaultdict
 from xml.dom.minidom import parseString
 from typing import List
-from decimal import Decimal
 import math
 
 
@@ -443,7 +442,7 @@ def get_shell(root, effective_filter):
         root = tree.getroot()
     except Exception as e:
         print(e)
-        
+
     ref = [
         ciref.find("ComponentInstanceRef").text
         for ciref in root.findall(".//ComponentInstanceReference")
@@ -516,34 +515,36 @@ def instance(instances, extracolumns):
     return root
 
 
-def get_myname_from_root(root):
-    short_name = root.find(".//ShortName")
-    name = root.find(".//Name")
-    ext_vlnv_name = root.find(".//ExtVLNV/Name")
+def get_myname_from_root(root) -> list:
     result = []
-    if (
-        short_name is not None
-        and short_name.text
-        and len(re.sub(r"^.?:(.?)\"?$", r"\1", short_name.text)) > 0
-    ):
-        clean_name = re.sub(r"^.*?:", "", short_name.text).replace('"', "")
-        result.append(clean_name)
-        result.append(clean_name + "_")
-    elif name is None or (
-        name is not None and (not name.text or not name.text.strip())
-    ):
-        if ext_vlnv_name is not None and ext_vlnv_name.text:
+    for i in root.findall(".//Interface"):
+        short_name = i.find(".//ShortName")
+        name = i.find(".//Name")
+        ext_vlnv_name = i.find(".//ExtVLNV//Name")
+
+        if (
+            short_name is not None
+            and short_name.text is not None
+            and len(re.sub(r"^.*?:(.*?)\"?$", "", short_name.text)) > 0
+        ):
+            clean_name = re.sub(r"^.*?:", "", short_name.text).replace('"', "")
+            result.append(clean_name)
+            # result.append(clean_name + "_")
+        elif (
+            name is not None
+            and (name.text is None or len(name.text.strip()) == 0)
+            or (
+                name is not None
+                and name.text is not None
+                and ext_vlnv_name is not None
+                and ext_vlnv_name.text is not None
+                and (name.text.strip() == ext_vlnv_name.text.lower())
+            )
+        ):
             result.append(ext_vlnv_name.text.lower())
-    elif (
-        name is not None
-        and ext_vlnv_name is not None
-        and name.text.strip() == ext_vlnv_name.text.lower()
-    ):
-        result.append(ext_vlnv_name.text.lower())
-    else:
-        if name is not None and name.text:
+        elif name is not None and name.text is not None:
             result.append(name.text.strip())
-            result.append(name.text.strip() + "_")
+            # result.append(name.text.strip() + "_")
     return result
 
 
@@ -577,22 +578,22 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
 
     signals = root.findall(".//Signal")
 
-    for port in root.findall("./InterfaceDefPort"):
+    for port in root.findall(".//InterfaceDefPort"):
         port_id = port.find("ID").text
         signal = next(
             (
                 sign
                 for sign in signals
-                if port.find("./XRefSignal/XRefTargetID").text in sign.find("ID").text
+                if port.find(".//XRefSignal//XRefTargetID").text in sign.find("ID").text
             ),
             None,
         )
 
-        signal_keys = [k.text for k in signal.findall("./Property/Key")]
-        signal_values = [v.text for v in signal.findall("./Property/Value")]
+        signal_keys = [k.text for k in signal.findall(".//Property//Key")]
+        signal_values = [v.text for v in signal.findall(".//Property//Value")]
 
-        port_keys = [k.text for k in port.findall("./Property/Key")]
-        port_values = [v.text for v in port.findall("./Property/Value")]
+        port_keys = [k.text for k in port.findall(".//Property//Key")]
+        port_values = [v.text for v in port.findall(".//Property//Value")]
 
         if port_id in excludes:
             add_comment(
@@ -632,7 +633,7 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
 
         else:
             member = ET.Element("Member")
-            member.set("wire", signal.find("./ID").text)
+            member.set("wire", signal.find(".//ID").text)
             my_name = []
 
             port_short_name = root.find(".//ShortName")
@@ -653,7 +654,7 @@ def interface_def_role(interface_path, interface, excludes, includes, reverse=0)
                 my_name.append(signal_short_name.text.replace('"', ""))
             else:
                 if port_name is not None and port_name.text:
-                    modified_name = re.sub(r"^(.*?)_a?[io]s*$", r"\1", port_name.text)
+                    modified_name = re.sub(r"^(.*?)_a?[io]s*$", "", port_name.text)
                     my_name.append(" ".join(modified_name.split()))
 
             name = socket_prefix + my_name[0]
@@ -782,23 +783,18 @@ def process_filters_grouped(filters):
 
 
 def to_tree_essence(input_str: str, consts: list) -> list:
-    root = ET.Element("Essence")
-    if re.match(r"^\s*\$curlyLeft\s*$", input_str):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-        ).text = "'{'"
-    elif re.match(r"^\s*\$curlyRight\s*$", input_str):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-        ).text = "'}'"
+    if re.match(r"^\s*\$curlyLeft\s*$", input_str):  # ???
+        op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
+        op.text = "'{'"
+    elif re.match(r"^\s*\$curlyRight\s*$", input_str):  # ???
+        op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
+        op.text = "'}'"
     elif re.match(r"^\s*true\s*$", input_str, re.IGNORECASE):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
-        ).text = 1
+        op = ET.Element("op", attrib={"kind": "const", "type": "bool", "prio": "8"})
+        op.text = 1
     elif re.match(r"^\s*false\s*$", input_str, re.IGNORECASE):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "bool", "prio": "8"}
-        ).text = 0
+        op = ET.Element("op", attrib={"kind": "const", "type": "bool", "prio": "8"})
+        op.text = 0
     # prio 1
     elif ")" in input_str:
         sub_str = input_str.split(")", 1)[0]
@@ -812,145 +808,153 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             return to_tree_essence(f"$${len(consts) + 1}{rbrack}", consts + [subtree])
         elif lbrack.endswith("min"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "min"
+            )
+            op_sub.text = "min"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("min$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("max"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "max"
+            )
+            op_sub.text = "max"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("max$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("rshift"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "rshift"
+            )
+            op_sub.text = "rshift"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("rshift$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("lshift"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "lshift"
+            )
+            op_sub.text = "lshift"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("lshift$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("log"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "log"
+            )
+            op_sub.text = "log"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("log$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"dec\d*$", lbrack):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            op = ET.Element(
+                "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
             ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = "'dec'"
-            ET.SubElement(
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-            ).text = (1 if lbrack.endswith("dec") else lbrack.split("dec", 1)[-1])
-            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
-            subtree.append(root)
+            )
+            op_sub.text = 1 if lbrack.endswith("dec") else lbrack.split("dec", 1)[-1]
+            op.append(to_tree_essence(bracket, consts))
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace(r"dec\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"hex\d*$", lbrack):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            op = ET.Element(
+                "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
             ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = "'hex'"
-            ET.SubElement(
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-            ).text = (1 if lbrack.endswith("hex") else lbrack.split("hex", 1)[-1])
-            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
-            subtree.append(root)
+            )
+            op_sub.text = 1 if lbrack.endswith("hex") else lbrack.split("hex", 1)[-1]
+            op.append(to_tree_essence(bracket, consts))
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace(r"hex\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"bin\d*$", lbrack):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            op = ET.Element(
+                "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
             ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = "'bin'"
-            ET.SubElement(
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-            ).text = (1 if lbrack.endswith("bin") else lbrack.split("bin", 1)[-1])
-            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
-            subtree.append(root)
+            )
+            op_sub.text = 1 if lbrack.endswith("bin") else lbrack.split("bin", 1)[-1]
+            op.append(to_tree_essence(bracket, consts))
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace(r"bin\d*$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"eng$", lbrack):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "string", "prio": "8"}
+            op = ET.Element(
+                "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
             ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = "'eng'"
-            ET.SubElement(op, "token").text = to_tree_essence(bracket, consts)
-            subtree.append(root)
+            op.append(to_tree_essence(bracket, consts))
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("eng$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
@@ -958,32 +962,34 @@ def to_tree_essence(input_str: str, consts: list) -> list:
 
         elif lbrack.endswith("list"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "list"
+            )
+            op_sub.text = "list"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("list$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("pos"):
             subtree = []
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "func", "type": "int", "prio": "8"}
-            )
-            ET.SubElement(
+            op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "pos"
+            )
+            op_sub.text = "pos"
 
             for token in bracket.split(","):
-                ET.SubElement(op, "token").text = to_tree_essence(token, consts)
-            subtree.append(root)
+                elements = to_tree_essence(token, consts)
+                for element in elements:
+                    op.append(element)
+            subtree.append(op)
             return to_tree_essence(
                 f"{lbrack.replace("pos$", "")}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
@@ -1004,27 +1010,25 @@ def to_tree_essence(input_str: str, consts: list) -> list:
 
         if and_length < or_length and and_length < xor_length:
             andl = re.sub(r"&+$", "", input_str[: len(input_str) - and_length])
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "and", "type": "bool", "prio": "1"}
-            )
+            op = ET.Element("op", attrib={"kind": "and", "type": "bool", "prio": "1"})
             op.append(to_tree_essence(andl, consts))
             op.append(to_tree_essence(andr, consts))
+            return op
         elif or_length < and_length and or_length < xor_length:
             orl = re.sub(r"&+$", "", input_str[: len(input_str) - or_length])
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "or", "type": "bool", "prio": "1"}
-            )
+            op = ET.Element("op", attrib={"kind": "or", "type": "bool", "prio": "1"})
             op.append(to_tree_essence(orl, consts))
             op.append(to_tree_essence(orr, consts))
+            return op
         elif xor_length < and_length and xor_length < or_length:
             xorl = input_str[: len(input_str) - xor_length - 1]
             right = to_tree_essence(xorr, consts)
             left = to_tree_essence(xorl, consts)
-            if right.attrib["type"] != "bool" or left.attrib["type"] != "bool":
+            if right.get("type") != "bool" or left.get("type") != "bool":
                 return to_tree_essence(f"{xorl}%%{xorr}", consts)
             else:
-                op = ET.SubElement(
-                    root, "op", attrib={"kind": "xor", "type": "bool", "prio": "1"}
+                op = ET.Element(
+                    "op", attrib={"kind": "xor", "type": "bool", "prio": "1"}
                 )
                 op.append(left)
                 op.append(right)
@@ -1068,11 +1072,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and ne < nm
         ):
             nel = input_str[: len(input_str) - ne - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "ne", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "ne", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(nel, consts))
             op.append(to_tree_essence(ner, consts))
+            return op
         elif (
             ge < lt
             and ge < gt
@@ -1083,11 +1086,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and ge < nm
         ):
             gel = input_str[: len(input_str) - ge - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "ge", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "ge", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(gel, consts))
             op.append(to_tree_essence(ger, consts))
+            return op
         elif (
             le < lt
             and le < gt
@@ -1098,11 +1100,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and le < nm
         ):
             lel = input_str[: len(input_str) - le - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "le", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "le", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(lel, consts))
             op.append(to_tree_essence(ler, consts))
+            return op
         elif (
             eq < lt
             and eq < gt
@@ -1113,11 +1114,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and eq < nm
         ):
             eql = input_str[: len(input_str) - eq - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "eq", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "eq", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(eql, consts))
             op.append(to_tree_essence(eqr, consts))
+            return op
         elif (
             gt < lt
             and gt < eq
@@ -1128,11 +1128,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and gt < nm
         ):
             gtl = input_str[: len(input_str) - gt - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "gt", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "gt", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(gtl, consts))
             op.append(to_tree_essence(gtr, consts))
+            return op
         elif (
             lt < ne
             and lt < gt
@@ -1143,11 +1142,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and lt < nm
         ):
             ltl = input_str[: len(input_str) - lt - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "lt", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "lt", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(ltl, consts))
             op.append(to_tree_essence(ltr, consts))
+            return op
         elif (
             nm < lt
             and nm < gt
@@ -1158,11 +1156,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and nm < ne
         ):
             nml = input_str[: len(input_str) - nm - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "nm", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "nm", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(nml, consts))
             op.append(to_tree_essence(nmr, consts))
+            return op
         elif (
             ma < lt
             and ma < gt
@@ -1173,11 +1170,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             and ma < nm
         ):
             mal = input_str[: len(input_str) - ma - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "ma", "type": "bool", "prio": "2"}
-            )
+            op = ET.Element("op", attrib={"kind": "ma", "type": "bool", "prio": "2"})
             op.append(to_tree_essence(mal, consts))
             op.append(to_tree_essence(mar, consts))
+            return op
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
 
@@ -1196,56 +1192,57 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         elif add < sub and addl.endswith("-"):
             left = to_tree_essence(subl, consts)
             right = to_tree_essence(addr, consts)
-            op = ET.SubElement(root, "op", attrib={"kind": "sub", "prio": "3"})
+            op = ET.Element("op", attrib={"kind": "sub", "prio": "3"})
             if left[0].get("type") == "int" and right[1].get("type") == "int":
                 op.set("type", "int")
             op.append(left)
             op.append(right)
+            return op
         elif add < sub:
             left = to_tree_essence(re.sub(r"\+\s*$", "", addl), consts)
             right = to_tree_essence(addr, consts)
             if left[0].get("kind") == "cat" or right[0].get("kind") == "cat":
-                op = ET.SubElement(root, "op", attrib={"kind": "cat", "prio": "3"})
+                op = ET.Element("op", attrib={"kind": "cat", "prio": "3"})
                 op.append(left)
                 op.append(right)
+                return op
             elif (left[0].get("type") == "string" and left[0].text != "#") or (
                 right[0].get("type") == "string" or right[0].text != "#"
             ):
-                op = ET.SubElement(
-                    root, "op", attrib={"kind": "cat", "type": "string", "prio": "3"}
+                op = ET.Element(
+                    "op", attrib={"kind": "cat", "type": "string", "prio": "3"}
                 )
                 op.append(left)
                 op.append(right)
+                return op
             elif left[0].get("kind") == "const" and len(left[0].text) == 0:
-                root.append(right)
+                return right
             elif right[0].get("kind") == "const" and len(right[0].text) == 0:
-                root.append(left)
+                return left
             else:
-                op = ET.SubElement(root, "op", attrib={"kind": "add", "prio": "3"})
+                op = ET.Element("op", attrib={"kind": "add", "prio": "3"})
                 if left[0].get("type") == "int" and right[0].get("type") == "int":
                     op.set("type", "int")
                 op.append(left)
                 op.append(right)
+                return op
         elif sub < add and subl.strip().endswith("+"):
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "sub", "type": "int", "prio": "3"}
-            )
+            op = ET.Element("op", attrib={"kind": "sub", "type": "int", "prio": "3"})
             op.append(to_tree_essence(addl, consts))
             op.append(to_tree_essence(subr, consts))
+            return op
         elif sub < add and subl.strip().endswith("-"):
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "add", "type": "int", "prio": "3"}
-            )
+            op = ET.Element("op", attrib={"kind": "add", "type": "int", "prio": "3"})
             op.append(to_tree_essence(re.sub(r"-\s*$"), "", subl), consts)
             op.append(to_tree_essence(subr, consts))
+            return op
         elif sub < add and re.match(r"(\*|\||%)\s*$", subl):
-            root.append(to_tree_essence(f"{subl}§{subr}", consts))
+            return to_tree_essence(f"{subl}§{subr}", consts)
         elif sub < add:
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "sub", "type": "int", "prio": "3"}
-            )
+            op = ET.Element("op", attrib={"kind": "sub", "type": "int", "prio": "3"})
             op.append(to_tree_essence(subl, consts))
             op.append(to_tree_essence(subr, consts))
+            return op
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "*" in input_str or "/" in input_str:  # mul/div: * /
@@ -1256,18 +1253,16 @@ def to_tree_essence(input_str: str, consts: list) -> list:
 
         if mul < div:
             mull = input_str[: len(input_str) - mul - 1]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "mul", "type": "int", "prio": "4"}
-            )
+            op = ET.Element("op", attrib={"kind": "mul", "type": "int", "prio": "4"})
             op.append(to_tree_essence(mull, consts))
             op.append(to_tree_essence(mulr, consts))
+            return op
         elif div < mul:
             divl = input_str[: len(input_str) - div - 1]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "div", "type": "int", "prio": "4"}
-            )
+            op = ET.Element("op", attrib={"kind": "div", "type": "int", "prio": "4"})
             op.append(to_tree_essence(divl, consts))
             op.append(to_tree_essence(divr, consts))
+            return op
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "%" in input_str:  # mod: % %% (was ^)
@@ -1278,72 +1273,82 @@ def to_tree_essence(input_str: str, consts: list) -> list:
 
         if mod < exp:
             modl = input_str[: len(input_str) - mod - 1]  # before last %
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "mod", "type": "int", "prio": "5"}
-            )
+            op = ET.Element("op", attrib={"kind": "mod", "type": "int", "prio": "5"})
             op.append(to_tree_essence(modl, consts))
             op.append(to_tree_essence(modr, consts))
+            return op
         elif exp < mod:
             expl = input_str[: len(input_str) - exp - 2]
-            op = ET.SubElement(
-                root, "op", attrib={"kind": "exp", "type": "int", "prio": "5"}
-            )
+            op = ET.Element("op", attrib={"kind": "exp", "type": "int", "prio": "5"})
             op.append(to_tree_essence(expl, consts))
             op.append(to_tree_essence(expr, consts))
+            return op
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "!" in input_str:  # monadic operators
-        op = ET.SubElement(
-            root, "op", attrib={"kind": "not", "type": "bool", "prio": "6"}
-        )
-        op.append(to_tree_essence(input_str.split("!", 1)[1]), consts)
+        op = ET.Element("op", attrib={"kind": "not", "type": "bool", "prio": "6"})
+        op.append(to_tree_essence(input_str.split("!", 1)[-1]), consts)
+        return op
     elif input_str.strip().startswith("§"):
-        op = ET.SubElement(
-            root, "op", attrib={"kind": "sub", "type": "int", "prio": "3"}
-        )
-        ET.SubElement(
+        op = ET.Element("op", attrib={"kind": "sub", "type": "int", "prio": "3"})
+        op_sub = ET.Element(
             op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-        ).text = 0
+        )
+        op_sub.text = 0
         op.append(to_tree_essence(input_str.split("§", 1)[1]), consts)
+        return op
     elif input_str.strip().startswith("$$"):  # constants $$
-        root.append(consts[int(input_str.split("$$", 1)[1])])
+        return consts[
+            int(input_str.split("$$", 1)[1]) - 1
+        ]  # added -1 bc of python indexing from 0
     elif input_str.strip().startswith("$"):  # variables $
-        op = ET.SubElement(root, "op", attrib={"kind": "var", "prio": "7"})
+        op = ET.Element("op", attrib={"kind": "var", "prio": "7"})
         if re.match(r"^\s*\$[a-z]\s*$", input_str):
             op.set("type", "int")
         op.text = input_str.split("$", 1)[1].strip()
+        return op
 
     elif input_str.strip().upper().startswith("0B"):  # numeric litarals
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-        ).text = str2base(input_str.strip()[2:], 2)
+        op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
+        op.text = str2base(input_str.strip()[2:], 2)
+        return op
     elif input_str.strip().upper().startswith("0X"):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-        ).text = str2base(input_str.strip()[2:], 16)
+        op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
+        op.text = str2base(input_str.strip()[2:], 16)
+        return op
     elif input_str.strip().upper().startswith("0O"):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-        ).text = str2base(input_str.strip()[2:], 8)
+        op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
+        op.text = str2base(input_str.strip()[2:], 8)
+        return op
     elif re.match(r"^\d+$", input_str.strip()):
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
-        ).text = str2base(input_str.strip(), 10)
+        op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
+        op.text = str2base(input_str.strip(), 10)
+        return op
     else:
-        ET.SubElement(
-            root, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-        ).text = input_str
+        op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
+        op.text = input_str
+        return op
 
 
-def str2base(input_str: str, base: int) -> Decimal:
+def str2base(input_str: str, base: int):
     input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
-    symbols = "0123456789ABCDEF"
+
+    if base == 16:
+        symbols = "0123456789ABCDEF"
+    elif base == 8:
+        symbols = "01234567"
+    elif base == 2:
+        symbols = "01"
+    else:
+        raise ValueError("ERROR: such 'base' is not supported.")
+
     if len(input_str) == 0 or not all(c in symbols for c in input_str):
         raise ValueError("ERROR: the string contains invalid characters or is empty!")
-    value = Decimal(0)
+
+    value = 0
     for i, char in enumerate(reversed(input_str)):
         digit_value = symbols.index(char)
-        value += Decimal(digit_value) * (Decimal(base) ** i)
+        value += digit_value * (base**i)
     return value
 
 
@@ -1394,39 +1399,27 @@ def patch_quoted(input_str: str, consts: list) -> str:
     )
 
     if double_length < single_length:
-        sub_str = input_str.split(quot, 1)[1] if quot in input_str else ""
-        sub_s = sub_str.split(quot, 1)[1] if quot in sub_str else ""
-        if double_length == 0 and len(sub_str) == 0:  # just a single ": string = '"'
-            first_quote = next((c for c in consts if c.text == quot), None)
-            if first_quote is not None:
-                return f"$${first_quote.get('pos')}"
-            else:
-                return None
-        elif sub_str.startswith(quot):
-            return f"{input_str[:double_length]}'$$1'{patch_quoted(sub_s, consts)}"
+        s = input_str.split(quot, 1)[1]
+        if double_length == 0 and len(s) == 0:
+            return f"$$ {next((c.get('pos') for c in consts if c.text == quot), None)}"
+        elif s.startswith(quot):
+            return f"{input_str[:double_length]}$$1{patch_quoted(s[1:], consts)}"
         else:
-            before_s = sub_str.split(quot, 1)[0] if quot in sub_str else ""
-            first_quote = next((c for c in consts if c.text == before_s), None)
-            if first_quote is not None:
-                return f"{input_str[:double_length]}'$$'{first_quote.get('pos')}{patch_quoted(sub_s, consts)}"
-            else:
-                return None
+            before_s = s.split(quot, 1)[0]
+            pos = next((c.get("pos") for c in consts if c.text == before_s), None)
+            return f"{input_str[:double_length]}$${pos}{patch_quoted(s[len(before_s) + 1:], consts)}"
+
     elif double_length > single_length:
-        sub_str = input_str.split(apos, 1)[1] if apos in input_str else ""
-        sub_s = sub_str.split(apos, 1)[1] if apos in sub_str else ""
-        if double_length == 0 and len(sub_str) == 0:  # just a single ': string = "'"
-            first_quote = next((c for c in consts if c.text == apos), None)
-            if first_quote is not None:
-                return f"$${first_quote.get('pos')}"
-            else:
-                return None
-        elif sub_str.startswith(apos):
-            return f"{input_str[:double_length]}'$$1'{patch_quoted(sub_s, consts)}"
+        s = input_str.split(apos, 1)[1]
+        if single_length == 0 and len(s) == 0:
+            return f"$$ {next((c.get('pos') for c in consts if c.text == apos), None)}"
+        elif s.startswith(apos):
+            return f"{input_str[:single_length]}$$1{patch_quoted(s[1:], consts)}"
         else:
-            before_s = sub_str.split(apos, 1)[0] if apos in sub_str else ""
-            first_quote = next((c for c in consts if c.text == before_s), None)
-            if first_quote is not None:
-                return f"{input_str[:double_length]}'$$'{first_quote.get('pos')}{patch_quoted(sub_s, consts)}"
+            before_s = s.split(apos, 1)[0]
+            pos = next((c.get("pos") for c in consts if c.text == before_s), None)
+            return f"{input_str[:single_length]}$${pos}{patch_quoted(s[len(before_s) + 1:], consts)}"
+
     else:
         return input_str
 
@@ -1439,53 +1432,54 @@ def decimal_to_hex(decimal_number: int) -> str:
 
 
 def parse_essence(input_str: str) -> list:
-    root = ET.Element("consts")
     consts = []
     for position, const in enumerate(
         extract_quoted(input_str, []), start=1
     ):  # we start from 1, bc we need position, not index
-        op = ET.SubElement(
-            root,
+        op = ET.Element(
             "op",
             {"kind": "const", "type": "string", "prio": "8", "pos": str(position)},
         )
         op.text = const
-    consts.append(root)
+        consts.append(op)
     patched_str = patch_quoted(input_str, consts)
     return to_tree_essence(patched_str, consts)
 
 
 def num_essence(
-    in_list: list, context: str, paramaps2, warning="recover"
-) -> Decimal:  # evaluate syntax tree for a numeric target
-    if in_list.get("kind") == "and":
+    in_list, context: str, paramaps2, warning="recover"
+):  # evaluate syntax tree for a numeric target
+    if in_list.get("kind") == "and" and len(in_list) > 1:
         return (
             0
             if (
-                num_essence(in_list[0], context) == 0
-                or num_essence(in_list[1], context) == 0
+                num_essence(in_list[0], context, paramaps2) == 0
+                or num_essence(in_list[1], context, paramaps2) == 0
             )
             else 1
         )
-    elif in_list.get("kind") == "or":
+    elif in_list.get("kind") == "or" and len(in_list) > 1:
         return (
             0
             if (
-                num_essence(in_list[0], context) == 0
-                or num_essence(in_list[1], context) == 0
+                num_essence(in_list[0], context, paramaps2) == 0
+                or num_essence(in_list[1], context, paramaps2) == 0
             )
             else 1
         )
-    if in_list.get("kind") == "xor":
+    elif in_list.get("kind") == "xor" and len(in_list) > 1:
         return (
             0
-            if (num_essence(in_list[0], context) == num_essence(in_list[1], context))
+            if (
+                num_essence(in_list[0], context, paramaps2)
+                == num_essence(in_list[1], context, paramaps2)
+            )
             else 1
         )
     elif (
         in_list.get("kind") in ("ge", "le", "lt", "gt", "eq", "ne", "nm", "ma")
-        and in_list[0].get("type") == "string"
-        or in_list[1].get("type") == "string"
+        and len(in_list) > 1
+        and (in_list[0].get("type") == "string" or in_list[1].get("type") == "string")
     ):
         left = text_essence(in_list[0], context)
         right = text_essence(in_list[1], context)
@@ -1505,61 +1499,73 @@ def num_essence(
             return 1 if compare(left, right) > 0 else 0
         elif in_list.get("kind") == "le":
             return 0 if compare(left, right) > 0 else 1
-    elif in_list.get("kind") == "ge":
+    elif in_list.get("kind") == "ge" and len(in_list) > 1:
         return (
             0
-            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            < num_essence(in_list[1], context, paramaps2)
             else 1
         )
-    elif in_list.get("kind") == "le":
+    elif in_list.get("kind") == "le" and len(in_list) > 1:
         return (
             0
-            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            > num_essence(in_list[1], context, paramaps2)
             else 1
         )
-    elif in_list.get("kind") == "gt":
+    elif in_list.get("kind") == "gt" and len(in_list) > 1:
         return (
             1
-            if num_essence(in_list[0], context) > num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            > num_essence(in_list[1], context, paramaps2)
             else 0
         )
-    elif in_list.get("kind") == "lt":
+    elif in_list.get("kind") == "lt" and len(in_list) > 1:
         return (
             1
-            if num_essence(in_list[0], context) < num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            < num_essence(in_list[1], context, paramaps2)
             else 0
         )
-    elif in_list.get("kind") == "eq":
+    elif in_list.get("kind") == "eq" and len(in_list) > 1:
         return (
             1
-            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            == num_essence(in_list[1], context, paramaps2)
             else 0
         )
-    elif in_list.get("kind") == "ne":
+    elif in_list.get("kind") == "ne" and len(in_list) > 1:
         return (
             0
-            if num_essence(in_list[0], context) == num_essence(in_list[1], context)
+            if num_essence(in_list[0], context, paramaps2)
+            == num_essence(in_list[1], context, paramaps2)
             else 1
         )
-    elif in_list.get("kind") == "add":
-        return num_essence(in_list[0], context) + num_essence(in_list[1], context)
-    elif in_list.get("kind") == "sub":
-        return num_essence(in_list[0], context) - num_essence(in_list[1], context)
-    elif in_list.get("kind") == "mul":
-        return num_essence(in_list[0], context) * num_essence(in_list[1], context)
-    elif in_list.get("kind") == "div":
-        divisor = num_essence(in_list[1], context)
+    elif in_list.get("kind") == "add" and len(in_list) > 1:
+        return num_essence(in_list[0], context, paramaps2) + num_essence(
+            in_list[1], context, paramaps2
+        )
+    elif in_list.get("kind") == "sub" and len(in_list) > 1:
+        return num_essence(in_list[0], context, paramaps2) - num_essence(
+            in_list[1], context, paramaps2
+        )
+    elif in_list.get("kind") == "mul" and len(in_list) > 1:
+        return num_essence(in_list[0], context, paramaps2) * num_essence(
+            in_list[1], context, paramaps2
+        )
+    elif in_list.get("kind") == "div" and len(in_list) > 1:
+        divisor = num_essence(in_list[1], context, paramaps2)
         if divisor == 0:
             raise ValueError("ERROR: Divide by 0!")
-        return num_essence(in_list[0], context) // divisor
-    elif in_list.get("kind") == "mod":
-        class_var = num_essence(in_list[1], context)
+        return num_essence(in_list[0], context, paramaps2) // divisor
+    elif in_list.get("kind") == "mod" and len(in_list) > 1:
+        class_var = num_essence(in_list[1], context, paramaps2)
         if class_var == 0:
             raise ValueError("ERROR: modulo 0!")
-        return num_essence(in_list[0], context) % class_var
-    elif in_list.get("kind") == "exp":
-        b = num_essence(in_list[0], context)
-        e = num_essence(in_list[1], context)
+        return num_essence(in_list[0], context, paramaps2) % class_var
+    elif in_list.get("kind") == "exp" and len(in_list) > 1:
+        b = num_essence(in_list[0], context, paramaps2)
+        e = num_essence(in_list[1], context, paramaps2)
         if b == 1:
             return 1
         elif b == 0:
@@ -1574,11 +1580,11 @@ def num_essence(
             h = power(b / 2, int(e))
             return int((h % power(2, 64 - e)) * power(2, e))
         elif b == 2:
-            return Decimal(power2(int(e)))
+            return power2(int(e))
         else:
-            return Decimal(power(b, int(e)))
-    elif in_list.get("kind") == "not":
-        return 1 if num_essence(in_list[0], context) == 0 else 0
+            return power(b, int(e))
+    elif in_list.get("kind") == "not" and len(in_list) > 0:
+        return 1 if num_essence(in_list[0], context, paramaps2) == 0 else 0
     elif in_list.get("kind") == "const" and in_list.get("type") in ("int", "bool"):
         if in_list.text.upper().startswith("0B"):
             return str2base(in_list.text[2:], 2)
@@ -1593,7 +1599,7 @@ def num_essence(
         and in_list.get("type") == "string"
         and re.match(r"^\d+$", in_list.text)
     ):
-        return Decimal(in_list.text)
+        return in_list.text
     elif in_list.get("kind") == "const":
         if warning == "fatal":
             raise ValueError(f"ERROR: Non-numeric value {in_list}")
@@ -1606,60 +1612,90 @@ def num_essence(
             root = tree.getroot()
         except Exception as e:
             print(e)
-        
+
         search_key = f"{context}:{in_list.text}"
         parameter_node = root.find(f".//{search_key}")
-        
+
         if parameter_node is None:
             return []
 
         value_nodes = [
-            child.text for child in parameter_node.findall("*")
-            if child.tag.endswith('Value')
+            child.text
+            for child in parameter_node.findall("*")
+            if child.tag.endswith("Value")
         ]
         get_parameter = sorted(value_nodes, key=lambda x: len(x))
         if len(get_parameter) > 0 and len(get_parameter[0]):
-            return num_essence(parse_essence(get_parameter[0], context))
+            return num_essence(parse_essence(get_parameter[0], context, paramaps2))
         else:
             if warning == "fatal":
-                raise ValueError(
-                    f"ERROR: Unresolved parameter {in_list.text}!"
-                )
+                raise ValueError(f"ERROR: Unresolved parameter {in_list.text}!")
             else:
                 print("Replaced by -1")
                 return -1
-        
-    elif in_list.get("kind") == "func" and len(in_list) != 3:
+
+    elif in_list.get("kind") == "func" and len(in_list) != 3 and len(in_list) > 0:
         raise ValueError(
             f"ERROR: Wrong number of parameters for function {in_list[0].text}"
         )
-    elif in_list.get("kind") == "func" and in_list[0].text == "min":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+    elif (
+        in_list.get("kind") == "func" and len(in_list) > 1 and in_list[0].text == "min"
+    ):
+        paras = [
+            int(num_essence(par, context, paramaps2))
+            for par in in_list.findall("./*")[1:]
+        ]
         return paras[0] if paras[0] < paras[1] else paras[1]
-    elif in_list.get("kind") == "func" and in_list[0].text == "max":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+    elif (
+        in_list.get("kind") == "func" and len(in_list) > 1 and in_list[0].text == "max"
+    ):
+        paras = [
+            int(num_essence(par, context, paramaps2))
+            for par in in_list.findall("./*")[1:]
+        ]
         return paras[0] if paras[0] > paras[1] else paras[1]
-    elif in_list.get("kind") == "func" and in_list[0].text == "rshift":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+    elif (
+        in_list.get("kind") == "func"
+        and len(in_list) > 1
+        and in_list[0].text == "rshift"
+    ):
+        paras = [
+            int(num_essence(par, context, paramaps2))
+            for par in in_list.findall("./*")[1:]
+        ]
         if paras[1] == 0:
             return paras[0]
         elif paras[1] < 0:
-            return paras[0] * Decimal(power(2, int(-paras[1])))
+            return paras[0] * power(2, int(-paras[1]))
         else:
-            return paras[0] // Decimal(power(2, int(paras[1])))
-    elif in_list.get("kind") == "func" and in_list[0].text == "lshift":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+            return paras[0] // power(2, int(paras[1]))
+    elif (
+        in_list.get("kind") == "func"
+        and len(in_list) > 1
+        and in_list[0].text == "lshift"
+    ):
+        paras = [
+            int(num_essence(par, context, paramaps2))
+            for par in in_list.findall("./*")[1:]
+        ]
         if paras[1] == 0:
             return paras[0]
         elif paras[1] < 0:
-            return paras[0] // Decimal(power(2, int(-paras[1])))
+            return paras[0] // power(2, int(-paras[1]))
         else:
-            return paras[0] * Decimal(power(2, int(paras[1])))
-    elif in_list.get("kind") == "func" and in_list[0].text == "log":
-        paras = [int(num_essence(par, context)) for par in in_list.findall("./*")[1:]]
+            return paras[0] * power(2, int(paras[1]))
+    elif (
+        in_list.get("kind") == "func" and len(in_list) > 1 and in_list[0].text == "log"
+    ):
+        paras = [
+            int(num_essence(par, context, paramaps2))
+            for par in in_list.findall("./*")[1:]
+        ]
         return log(paras[0], paras[1])
-    elif in_list.get("kind") == "func" and in_list[0].text == "pos":
-        index = Decimal(num_essence(in_list[2], context))
+    elif (
+        in_list.get("kind") == "func" and len(in_list) > 1 and in_list[0].text == "pos"
+    ):
+        index = num_essence(in_list[2], context, paramaps2)
         paras = []
         if in_list[1].get("kind") == "func" and in_list[1][0].text == "list":  # ???
             for i, p in enumerate(in_list[1]):
@@ -1671,19 +1707,20 @@ def num_essence(
                 root = tree.getroot()
             except Exception as e:
                 print(e)
-        
+
             search_key = f"{context}:{in_list[1].text}"
             parameter_node = root.find(f".//{search_key}")
-            
+
             if parameter_node is None:
                 return []
 
             value_nodes = [
-                child.text for child in parameter_node.findall("*")
-                if child.tag.endswith('Value')
+                child.text
+                for child in parameter_node.findall("*")
+                if child.tag.endswith("Value")
             ]
             get_parameter = sorted(value_nodes, key=lambda x: len(x))
-            
+
             if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
                 tree = parse_essence(get_parameter[0])
                 if tree.get("kind") == "func" and tree[0].text == "list":
@@ -1703,7 +1740,7 @@ def num_essence(
         else:
             raise ValueError('ERROR: Invalid first parameter in "pos()"!')
         if len(paras) > 0:
-            return num_essence(paras[0], context)
+            return num_essence(paras[0], context, paramaps2)
         else:
             if warning == "fatal":
                 raise ValueError(
@@ -1720,9 +1757,7 @@ def num_essence(
             return -1
 
 
-def integer_essence(
-    input_str: str, context: str = None, varmap: list = None
-) -> Decimal:
+def integer_essence(input_str: str, context: str = None, varmap: list = None):
     if context is None:
         return integer_essence(input_str, "0")
     elif varmap is None:
@@ -1731,72 +1766,85 @@ def integer_essence(
         return num_essence(
             prune_essence(prune_essence(input_str), context, varmap, 0), context
         )
-        
 
-def text_essence(input_data, context, para_maps2=None, warning="fatal", suppress=""):
-    if not input_data.get('kind'):
+
+def text_essence(input_data, context:str = '', para_maps2=None, warning="fatal", suppress=""):
+    if not input_data.get("kind"):
         return ""
-        
-    kind = input_data.get('kind')
-    
-    if kind == 'cat':
-        return text_essence(input_data['children'][0], context, para_maps2, warning, suppress) + \
-               text_essence(input_data['children'][1], context, para_maps2, warning, suppress)
-               
-    elif kind == 'const' and input_data.get('text') == '#':
-        return input_data.get('text')
-        
-    elif kind == 'const':
-        return input_data.get('text', '').replace('&amp;', '&')
-        
-    elif kind == 'var' and input_data.get('text') == 'suppress' and len(suppress) > 0:
+
+    kind = input_data.get("kind")
+
+    if kind == "cat":
+        return text_essence(
+            input_data[0], context, para_maps2, warning, suppress
+        ) + text_essence(
+            input_data[1], context, para_maps2, warning, suppress
+        )
+
+    elif kind == "const" and input_data.text == "#":
+        return input_data.text
+
+    elif kind == "const":
+        return re.sub(r'&amp;amp;', '&amp;', input_data)
+
+    elif kind == "var" and input_data.get("text") == "suppress" and len(suppress) > 0:
         return suppress
-        
-    elif kind == 'var':
+
+    elif kind == "var":
         get_parameter = []
-        
+
         if para_maps2:
             key = f"{context}:{input_data.get('text')}"
             for param in para_maps2.get_parameters(key):
-                get_parameter.append(param.replace('"', ''))
-                
+                get_parameter.append(param.replace('"', ""))
+
             if para_maps2.has_filter(context):
-                get_parameter.extend(get_filter(input_data.get('text'), context))
-                
+                get_parameter.extend(get_filter(input_data.get("text"), context))
+
         if not get_parameter:
-            get_parameter.append(input_data.get('text'))
-            
+            get_parameter.append(input_data.get("text"))
+
         if len(get_parameter) < 2:
             error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"!'
-            if warning == 'fatal':
+            if warning == "fatal":
                 raise ValueError(error_msg)
             else:
                 print(error_msg)
                 print(f'Replaced by "{get_parameter[0]}"')
-                
+
         return get_parameter[0]
-        
-    elif kind == 'func' and input_data['children'][0].get('text') == 'pos' and len(input_data['children']) == 3:
-        index = num_essence(input_data['children'][2], context, para_maps2, warning)
-        
-        second_child = input_data['children'][1]
+
+    elif (
+        kind == "func"
+        and input_data["children"][0].get("text") == "pos"
+        and len(input_data["children"]) == 3
+    ):
+        index = num_essence(input_data["children"][2], context, para_maps2, warning)
+
+        second_child = input_data["children"][1]
         paras = []
-        
-        if second_child.get('kind') == 'func' and second_child['children'][0].get('text') == 'list':
-            for pos, child in enumerate(second_child['children'][1:], 0):
+
+        if (
+            second_child.get("kind") == "func"
+            and second_child["children"][0].get("text") == "list"
+        ):
+            for pos, child in enumerate(second_child["children"][1:], 0):
                 if pos == index:
                     paras.append(child)
-        elif second_child.get('kind') == 'var':
+        elif second_child.get("kind") == "var":
             get_parameter = []
             if para_maps2:
                 key = f"{context}:{second_child.get('text')}"
                 for param in para_maps2.get_parameters(key):
                     get_parameter.append(param)
-                    
+
             if get_parameter and len(get_parameter[0]) > 0:
                 tree = parse_essence(get_parameter[0])
-                if tree.get('kind') == 'func' and tree['children'][0].get('text') == 'list':
-                    for pos, child in enumerate(tree['children'][1:], 0):
+                if (
+                    tree.get("kind") == "func"
+                    and tree["children"][0].get("text") == "list"
+                ):
+                    for pos, child in enumerate(tree["children"][1:], 0):
                         if pos == index:
                             paras.append(child)
                 else:
@@ -1804,7 +1852,7 @@ def text_essence(input_data, context, para_maps2=None, warning="fatal", suppress
                     raise ValueError(error_msg)
             else:
                 error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"'
-                if warning == 'fatal':
+                if warning == "fatal":
                     raise ValueError(error_msg)
                 else:
                     print(error_msg)
@@ -1812,39 +1860,66 @@ def text_essence(input_data, context, para_maps2=None, warning="fatal", suppress
                     return "-1"
         else:
             raise ValueError("ERROR: Invalid first parameter in 'pos()'!")
-            
+
         if paras:
             return text_essence(paras[0], context, para_maps2, warning, suppress)
         else:
-            error_msg = f'ERROR: pos({input_data["children"][1]},{index}) index out of bounds!'
-            if warning == 'fatal':
+            error_msg = (
+                f'ERROR: pos({input_data["children"][1]},{index}) index out of bounds!'
+            )
+            if warning == "fatal":
                 raise ValueError(error_msg)
             else:
                 print(error_msg)
                 print("Replaced by -1")
                 return "-1"
-                
-    elif kind == 'func' and input_data['children'][0].get('text') == 'dec' and len(input_data['children']) == 3:
-        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+
+    elif (
+        kind == "func"
+        and input_data["children"][0].get("text") == "dec"
+        and len(input_data["children"]) == 3
+    ):
+        paras = [
+            num_essence(child, context, para_maps2, warning)
+            for child in input_data["children"][1:]
+        ]
         s = str(paras[1])
-        padding = '0' * (int(paras[0]) - len(s))
+        padding = "0" * (int(paras[0]) - len(s))
         return padding + s
-        
-    elif kind == 'func' and input_data['children'][0].get('text') == 'hex' and len(input_data['children']) == 3:
-        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+
+    elif (
+        kind == "func"
+        and input_data["children"][0].get("text") == "hex"
+        and len(input_data["children"]) == 3
+    ):
+        paras = [
+            num_essence(child, context, para_maps2, warning)
+            for child in input_data["children"][1:]
+        ]
         s = decimal_to_hex(paras[1])
-        padding = '0' * (int(paras[0]) - len(s))
+        padding = "0" * (int(paras[0]) - len(s))
         return padding + s
-        
-    elif kind == 'func' and input_data['children'][0].get('text') == 'bin' and len(input_data['children']) == 3:
-        paras = [num_essence(child, context, para_maps2, warning) for child in input_data['children'][1:]]
+
+    elif (
+        kind == "func"
+        and input_data["children"][0].get("text") == "bin"
+        and len(input_data["children"]) == 3
+    ):
+        paras = [
+            num_essence(child, context, para_maps2, warning)
+            for child in input_data["children"][1:]
+        ]
         s = decimal_to_bin(paras[1])
-        padding = '0' * (int(paras[0]) - len(s))
+        padding = "0" * (int(paras[0]) - len(s))
         return padding + s
-        
-    elif kind == 'func' and input_data['children'][0].get('text') == 'eng' and len(input_data['children']) == 2:
-        val = num_essence(input_data['children'][1], context, para_maps2, warning)
-        
+
+    elif (
+        kind == "func"
+        and input_data["children"][0].get("text") == "eng"
+        and len(input_data["children"]) == 2
+    ):
+        val = num_essence(input_data["children"][1], context, para_maps2, warning)
+
         if val >= 1073741824:
             return f"{math.floor(val / 10737418.24) / 100}GB"
         elif val >= 1048576:
@@ -1853,30 +1928,27 @@ def text_essence(input_data, context, para_maps2=None, warning="fatal", suppress
             return f"{math.floor(val / 10.24) / 100}KB"
         else:
             return f"{val}B"
-    
+
     else:
         return str(num_essence(input_data, context, para_maps2, warning))
 
 
 def decimal_to_hex(decimal_value):
-    return format(int(decimal_value), 'x')
+    return format(int(decimal_value), "x")
 
 
 def decimal_to_bin(decimal_value):
-    return format(int(decimal_value), 'b')
+    return format(int(decimal_value), "b")
 
 
 def prune_essence():
     pass
 
 
-def get_filter(parameter_name: str,
-               context: str,
-               para_maps: ET.Element
-               ) -> List:
+def get_filter(parameter_name: str, context: str, para_maps: ET.Element) -> List:
 
-    if parameter_name.startswith('{'):
-        m = re.match(r'^\{(.)\}.$', parameter_name)
+    if parameter_name.startswith("{"):
+        m = re.match(r"^\{(.)\}.$", parameter_name)
         key = m.group(1) if m else parameter_name
     else:
         key = parameter_name
@@ -1888,17 +1960,17 @@ def get_filter(parameter_name: str,
 
     values = []
     for child in filter_root:
-        if child.tag.endswith('Value'):
+        if child.tag.endswith("Value"):
             values.append(child.text or "")
     values.sort(key=len)
     return [values[0]] if values else []
 
 
-def log(number: Decimal, base: Decimal) -> Decimal:
+def log(number, base):
     return logh(number, base, base * base, 0)
 
 
-def logh(number: Decimal, base: Decimal, base2: Decimal, n: Decimal) -> Decimal:
+def logh(number, base, base2, n):
     if number < base:
         return n
     elif number < base2:
@@ -1930,9 +2002,9 @@ def powerh(base: float, exp: int) -> float:
         return h * h if exp % 2 == 0 else base * h * h
 
 
-def power2(exp: int) -> Decimal:
+def power2(exp: int):
     if exp < 0:
-        return Decimal(1.0 / power2(-exp))
+        return 1.0 / power2(-exp)
     elif exp == 0:
         return 1
     elif exp == 1:
@@ -1942,20 +2014,8 @@ def power2(exp: int) -> Decimal:
     elif exp == 3:
         return 8
     else:
-        h = Decimal(power2(exp // 2))
+        h = power2(exp // 2)
         return h * h if exp % 2 == 0 else 2 * h * h
-
-
-def str2base(input_str: str, base: int) -> Decimal:
-    input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
-    symbols = "0123456789ABCDEF"
-    if len(input_str) == 0 or not all(c in symbols for c in input_str):
-        raise ValueError("ERROR: the string contains invalid characters or is empty!")
-    value = Decimal(0)
-    for i, char in enumerate(reversed(input_str)):
-        digit_value = symbols.index(char)
-        value += Decimal(digit_value) * (Decimal(base) ** i)
-    return value
 
 
 def compare(left, right):
@@ -1966,32 +2026,57 @@ def compare(left, right):
 
 def main():
     try:
-        Iproot = "C:/python_projects/work/my_parcing/parsed_context_spirit.xml"
-        filter = None
-        toolversion = 1.4
-        Doc_Author = "Abc Abc"
-        drive = "file:"
-        disc = ""
-        filter_params = [
-            "audience",
-            "platform",
-            "product",
-            "package",
-            "props",
-            "otherprops",
-        ]
-        input = "./instance_sheet_TC49x.xml"
-        # filter = find_filter(
-        #     input_file="C:/python_projects/work/my_parcing/instance_sheet_TC49x.xml",
-        #     filter=filter,
-        # )
-        #data = open_lookup_file(Iproot)
-        # data = process_df(drive,disc,data)
-        """data.to_csv('lookup_file.csv')
-        IPdefs = collect_parameters(filter_params,input, filter,data)"""
-        # xml_str = create_xml(
-        #     toolversion, Iproot, data, "IPdefs.xml", filter, Doc_Author
-        # )
+        print()
+        strg = "min(hello log)(log)'print'"
+        strg2 = "0xF02C0800"
+
+        path = "./1.xml"
+        tree = ET.parse(path)
+        root = tree.getroot()
+
+        paramaps_path = "used/Paramaps2.xml"
+
+        in_list = []
+
+        op = ET.Element("op", attrib={"kind": "cat", "type": "string", "prio": "1"})
+        op.text = f"123"
+        sub_1 = ET.SubElement(
+            op, "op", attrib={"kind": "const", "type": "string", "prio": "2"}
+        )
+        sub_1.text = f"0b100000"
+        sub_2 = ET.SubElement(
+            op, "op", attrib={"kind": "const", "type": "string", "prio": "2"}
+        )
+        sub_2.text = f"0b11"
+        in_list.append(op)
+        ET.dump(in_list[0])
+
+        # result = num_essence(in_list[0], "", paramaps_path)
+        # print(result)
+        
+        
+        # tree = ET.parse(paramaps_path)
+        # root = tree.getroot()
+       
+        # search_key = f"{""}:{in_list[0].text}"
+        # print(search_key)
+        # parameter_node = root.find(f".//parameter[@name='{4957}']")
+        # print(parameter_node)
+        
+        # value_nodes = [
+        #     child.text
+        #     for child in parameter_node.findall("*")
+        #     if child.tag.endswith("Value")
+        # ]
+        # get_parameter = sorted(value_nodes, key=lambda x: len(x))
+        # if len(get_parameter) > 0 and len(get_parameter[0]):
+        #     return num_essence(parse_essence(get_parameter[0], context, paramaps2))
+        # else:
+        #     if warning == "fatal":
+        #         raise ValueError(f"ERROR: Unresolved parameter {in_list.text}!")
+        #     else:
+        #         print("Replaced by -1")
+        #         return -1
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")

@@ -3,8 +3,5 @@
 *.csv
 venv/
 __pycache__
-print.py
 raw_creation.py
 mathlib2.xslt
-test.py
-instance2db(2).py
