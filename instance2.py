@@ -529,7 +529,7 @@ def get_myname_from_root(root) -> list:
         ):
             clean_name = re.sub(r"^.*?:", "", short_name.text).replace('"', "")
             result.append(clean_name)
-            # result.append(clean_name + "_")
+            result.append(clean_name + "_")
         elif (
             name is not None
             and (name.text is None or len(name.text.strip()) == 0)
@@ -544,7 +544,7 @@ def get_myname_from_root(root) -> list:
             result.append(ext_vlnv_name.text.lower())
         elif name is not None and name.text is not None:
             result.append(name.text.strip())
-            # result.append(name.text.strip() + "_")
+            result.append(name.text.strip() + "_")
     return result
 
 
@@ -1768,7 +1768,9 @@ def integer_essence(input_str: str, context: str = None, varmap: list = None):
         )
 
 
-def text_essence(input_data, context:str = '', para_maps2=None, warning="fatal", suppress=""):
+def text_essence(
+    input_data, context: str = "", para_maps2=None, warning="fatal", suppress=""
+):
     if not input_data.get("kind"):
         return ""
 
@@ -1777,17 +1779,15 @@ def text_essence(input_data, context:str = '', para_maps2=None, warning="fatal",
     if kind == "cat":
         return text_essence(
             input_data[0], context, para_maps2, warning, suppress
-        ) + text_essence(
-            input_data[1], context, para_maps2, warning, suppress
-        )
+        ) + text_essence(input_data[1], context, para_maps2, warning, suppress)
 
     elif kind == "const" and input_data.text == "#":
         return input_data.text
 
     elif kind == "const":
-        return re.sub(r'&amp;amp;', '&amp;', input_data)
+        return re.sub(r"&amp;amp;", "&amp;", input_data)
 
-    elif kind == "var" and input_data.get("text") == "suppress" and len(suppress) > 0:
+    elif kind == "var" and input_data.text == "suppress" and len(suppress) > 0:
         return suppress
 
     elif kind == "var":
@@ -1814,111 +1814,77 @@ def text_essence(input_data, context:str = '', para_maps2=None, warning="fatal",
 
         return get_parameter[0]
 
-    elif (
-        kind == "func"
-        and input_data["children"][0].get("text") == "pos"
-        and len(input_data["children"]) == 3
-    ):
-        index = num_essence(input_data["children"][2], context, para_maps2, warning)
-
-        second_child = input_data["children"][1]
+    elif kind == "func" and input_data[0].text == "pos" and len(input_data) == 3:
+        index = num_essence(input_data[2], context, para_maps2, warning)
         paras = []
 
-        if (
-            second_child.get("kind") == "func"
-            and second_child["children"][0].get("text") == "list"
-        ):
-            for pos, child in enumerate(second_child["children"][1:], 0):
-                if pos == index:
+        if input_data[1].get("kind") == "func" and input_data[1][0].text == "list":
+            for pos, child in enumerate(input_data[1]):
+                if pos - 2 == index:
                     paras.append(child)
-        elif second_child.get("kind") == "var":
-            get_parameter = []
+        elif input_data[1].get("kind") == "var":
+            get_parameter = []  ## дописать
             if para_maps2:
-                key = f"{context}:{second_child.get('text')}"
+                key = f"{context}:{input_data[1].get('text')}"
                 for param in para_maps2.get_parameters(key):
                     get_parameter.append(param)
 
-            if get_parameter and len(get_parameter[0]) > 0:
+            if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
                 tree = parse_essence(get_parameter[0])
-                if (
-                    tree.get("kind") == "func"
-                    and tree["children"][0].get("text") == "list"
-                ):
-                    for pos, child in enumerate(tree["children"][1:], 0):
-                        if pos == index:
+                if tree.get("kind") == "func" and tree[0].text == "list":
+                    for pos, child in enumerate(tree[1]):
+                        if pos - 2 == index:
                             paras.append(child)
                 else:
-                    error_msg = f'ERROR: Invalid first parameter in "pos({second_child.get("text")},...)"!'
-                    raise ValueError(error_msg)
+                    raise ValueError(
+                        f'ERROR: Invalid first parameter in "pos({input_data[1].text},...)"!'
+                    )
             else:
-                error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"'
                 if warning == "fatal":
-                    raise ValueError(error_msg)
+                    raise ValueError(f'ERROR: Unresolved parameter "{input_data.text}"')
                 else:
-                    print(error_msg)
                     print("Replaced by -1")
                     return "-1"
         else:
             raise ValueError("ERROR: Invalid first parameter in 'pos()'!")
 
-        if paras:
+        if len(paras) > 0:
             return text_essence(paras[0], context, para_maps2, warning, suppress)
         else:
-            error_msg = (
-                f'ERROR: pos({input_data["children"][1]},{index}) index out of bounds!'
-            )
             if warning == "fatal":
-                raise ValueError(error_msg)
+                raise ValueError(
+                    f"ERROR: pos({input_data[1]},{index}) index out of bounds!"
+                )
             else:
-                print(error_msg)
                 print("Replaced by -1")
                 return "-1"
 
-    elif (
-        kind == "func"
-        and input_data["children"][0].get("text") == "dec"
-        and len(input_data["children"]) == 3
-    ):
+    elif kind == "func" and input_data[0].text == "dec" and len(input_data) == 3:
         paras = [
-            num_essence(child, context, para_maps2, warning)
-            for child in input_data["children"][1:]
+            num_essence(child, context, para_maps2, warning) for child in input_data[1:]
         ]
         s = str(paras[1])
-        padding = "0" * (int(paras[0]) - len(s))
-        return padding + s
+        p = "0" * (int(paras[0]) - len(s))
+        return p + s
 
-    elif (
-        kind == "func"
-        and input_data["children"][0].get("text") == "hex"
-        and len(input_data["children"]) == 3
-    ):
+    elif kind == "func" and input_data[0].text == "hex" and len(input_data) == 3:
         paras = [
-            num_essence(child, context, para_maps2, warning)
-            for child in input_data["children"][1:]
+            num_essence(child, context, para_maps2, warning) for child in input_data[1:]
         ]
-        s = decimal_to_hex(paras[1])
-        padding = "0" * (int(paras[0]) - len(s))
-        return padding + s
+        s = decimal_to_hex(paras[1])  # ???
+        p = "0" * (int(paras[0]) - len(s))
+        return p + s
 
-    elif (
-        kind == "func"
-        and input_data["children"][0].get("text") == "bin"
-        and len(input_data["children"]) == 3
-    ):
+    elif kind == "func" and input_data[0].text == "bin" and len(input_data) == 3:
         paras = [
-            num_essence(child, context, para_maps2, warning)
-            for child in input_data["children"][1:]
+            num_essence(child, context, para_maps2, warning) for child in input_data[1:]
         ]
-        s = decimal_to_bin(paras[1])
-        padding = "0" * (int(paras[0]) - len(s))
-        return padding + s
+        s = decimal_to_bin(paras[1])  # ???
+        p = "0" * (int(paras[0]) - len(s))
+        return p + s
 
-    elif (
-        kind == "func"
-        and input_data["children"][0].get("text") == "eng"
-        and len(input_data["children"]) == 2
-    ):
-        val = num_essence(input_data["children"][1], context, para_maps2, warning)
+    elif kind == "func" and input_data[0].text == "eng" and len(input_data) == 2:
+        val = num_essence(input_data[1], context, para_maps2, warning)
 
         if val >= 1073741824:
             return f"{math.floor(val / 10737418.24) / 100}GB"
@@ -2053,16 +2019,15 @@ def main():
 
         # result = num_essence(in_list[0], "", paramaps_path)
         # print(result)
-        
-        
+
         # tree = ET.parse(paramaps_path)
         # root = tree.getroot()
-       
+
         # search_key = f"{""}:{in_list[0].text}"
         # print(search_key)
         # parameter_node = root.find(f".//parameter[@name='{4957}']")
         # print(parameter_node)
-        
+
         # value_nodes = [
         #     child.text
         #     for child in parameter_node.findall("*")
