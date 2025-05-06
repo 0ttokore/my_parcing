@@ -1481,8 +1481,8 @@ def num_essence(
         and len(in_list) > 1
         and (in_list[0].get("type") == "string" or in_list[1].get("type") == "string")
     ):
-        left = text_essence(in_list[0], context)
-        right = text_essence(in_list[1], context)
+        left = text_essence(in_list[0], context, paramaps2)
+        right = text_essence(in_list[1], context, paramaps2)
         if in_list.get("kind") == "nm":
             return 0 if str(right) in str(left) else 1
         elif in_list.get("kind") == "ma":
@@ -1608,8 +1608,7 @@ def num_essence(
             return -1
     elif in_list.get("kind") == "var":
         try:
-            tree = ET.parse(paramaps2)
-            root = tree.getroot()
+            root = ET.parse(paramaps2).getroot()
         except Exception as e:
             print(e)
 
@@ -1625,6 +1624,7 @@ def num_essence(
             if child.tag.endswith("Value")
         ]
         get_parameter = sorted(value_nodes, key=lambda x: len(x))
+
         if len(get_parameter) > 0 and len(get_parameter[0]):
             return num_essence(parse_essence(get_parameter[0], context, paramaps2))
         else:
@@ -1769,12 +1769,17 @@ def integer_essence(input_str: str, context: str = None, varmap: list = None):
 
 
 def text_essence(
-    input_data, context: str = "", para_maps2=None, warning="fatal", suppress=""
+    input_data, context: str = "0", para_maps2=None, warning="fatal", suppress=""
 ):
     if not input_data.get("kind"):
         return ""
 
     kind = input_data.get("kind")
+
+    try:
+        root = ET.parse(para_maps2).getroot()
+    except Exception as e:
+        print(e)
 
     if kind == "cat":
         return text_essence(
@@ -1785,24 +1790,38 @@ def text_essence(
         return input_data.text
 
     elif kind == "const":
-        return re.sub(r"&amp;amp;", "&amp;", input_data)
+        return re.sub(r"&amp;amp;", "&amp;", input_data.text)
 
     elif kind == "var" and input_data.text == "suppress" and len(suppress) > 0:
         return suppress
 
     elif kind == "var":
         get_parameter = []
+        key = f"{context}:{input_data[0].text}"
 
-        if para_maps2:
-            key = f"{context}:{input_data.get('text')}"
-            for param in para_maps2.get_parameters(key):
-                get_parameter.append(param.replace('"', ""))
+        # Find the parameter element with matching Int_Class_ID
+        for param in root.findall(f".//parameter[@Int_Class_ID='{key}']"):
+            # Find all elements that end with 'Value' and sort by length of tag name
+            value_elements = []
+            for elem in param.iter():
+                if elem.tag.endswith("Value"):
+                    # Remove quotes from text if present
+                    text = elem.text or ""
+                    if text.startswith('"') and text.endswith('"'):
+                        text = text[1:-1]
+                    value_elements.append((len(elem.tag), text))
 
-            if para_maps2.has_filter(context):
-                get_parameter.extend(get_filter(input_data.get("text"), context))
+            # Sort by length of tag name (equivalent to XSLT sort)
+            value_elements.sort(key=lambda x: x[0])
+            get_parameter.extend(text for _, text in value_elements)
 
-        if not get_parameter:
-            get_parameter.append(input_data.get("text"))
+        # Add filter values if filter exists for this context
+        if root.find(f".//filter[@Int_Class_ID='{context}']") is not None:
+            filter_values = get_filter(input_data[0].text, context, root)
+            get_parameter.extend(filter_values)
+
+        # Add the parameter name itself as fallback
+        get_parameter.append(input_data[0].text)
 
         if len(get_parameter) < 2:
             error_msg = f'ERROR: Unresolved parameter "{input_data.get("text")}"!'
@@ -1823,11 +1842,16 @@ def text_essence(
                 if pos - 2 == index:
                     paras.append(child)
         elif input_data[1].get("kind") == "var":
-            get_parameter = []  ## дописать
-            if para_maps2:
-                key = f"{context}:{input_data[1].get('text')}"
-                for param in para_maps2.get_parameters(key):
-                    get_parameter.append(param)
+            get_parameter = []
+            key = f"{context}:{input_data[0][1].text}"
+
+            # Find the parameter element with matching Int_Class_ID
+            for param in root.findall(f".//parameter[@Int_Class_ID='{key}']"):
+                # Find all elements that end with 'Value'
+                for elem in param.iter():
+                    if elem.tag.endswith("Value"):
+                        if elem.text:
+                            get_parameter.append(elem.text)
 
             if len(get_parameter) > 0 and len(get_parameter[0]) > 0:
                 tree = parse_essence(get_parameter[0])
@@ -1871,7 +1895,7 @@ def text_essence(
         paras = [
             num_essence(child, context, para_maps2, warning) for child in input_data[1:]
         ]
-        s = decimal_to_hex(paras[1])  # ???
+        s = decimal_to_hex(paras[1])
         p = "0" * (int(paras[0]) - len(s))
         return p + s
 
@@ -1879,7 +1903,7 @@ def text_essence(
         paras = [
             num_essence(child, context, para_maps2, warning) for child in input_data[1:]
         ]
-        s = decimal_to_bin(paras[1])  # ???
+        s = decimal_to_bin(paras[1])
         p = "0" * (int(paras[0]) - len(s))
         return p + s
 
@@ -2001,47 +2025,43 @@ def main():
         root = tree.getroot()
 
         paramaps_path = "used/Paramaps2.xml"
+        tree = ET.parse(paramaps_path)
+        root = tree.getroot()
 
         in_list = []
 
         op = ET.Element("op", attrib={"kind": "cat", "type": "string", "prio": "1"})
-        op.text = f"123"
+        op.text = f"4957"
         sub_1 = ET.SubElement(
             op, "op", attrib={"kind": "const", "type": "string", "prio": "2"}
         )
-        sub_1.text = f"0b100000"
+        sub_1.text = f"4560"
         sub_2 = ET.SubElement(
             op, "op", attrib={"kind": "const", "type": "string", "prio": "2"}
         )
-        sub_2.text = f"0b11"
+        sub_2.text = f"276"
         in_list.append(op)
-        ET.dump(in_list[0])
 
-        # result = num_essence(in_list[0], "", paramaps_path)
-        # print(result)
+        context = "0"
+        get_parameter = []
 
-        # tree = ET.parse(paramaps_path)
-        # root = tree.getroot()
+        key = f"{context}:{in_list[0][1].text}"
 
-        # search_key = f"{""}:{in_list[0].text}"
-        # print(search_key)
-        # parameter_node = root.find(f".//parameter[@name='{4957}']")
-        # print(parameter_node)
+        # Find all parameter elements with matching Int_Class_ID
+        for param in root.findall(f".//parameter[@Int_Class_ID='{key}']"):
+            # Find all elements that end with 'Value' and sort by length of tag name
+            value_elements = []
+            for elem in param.iter():
+                if elem.tag.endswith("Value"):
+                    # Get the text content
+                    text = elem.text or ""
+                    value_elements.append((len(elem.tag), text))
 
-        # value_nodes = [
-        #     child.text
-        #     for child in parameter_node.findall("*")
-        #     if child.tag.endswith("Value")
-        # ]
-        # get_parameter = sorted(value_nodes, key=lambda x: len(x))
-        # if len(get_parameter) > 0 and len(get_parameter[0]):
-        #     return num_essence(parse_essence(get_parameter[0], context, paramaps2))
-        # else:
-        #     if warning == "fatal":
-        #         raise ValueError(f"ERROR: Unresolved parameter {in_list.text}!")
-        #     else:
-        #         print("Replaced by -1")
-        #         return -1
+            # Sort by length of tag name
+            value_elements.sort(key=lambda x: x[0])
+
+            # Add the sorted values to get_parameter
+            get_parameter.extend(text for _, text in value_elements)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
