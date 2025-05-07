@@ -783,19 +783,23 @@ def process_filters_grouped(filters):
 
 
 def to_tree_essence(input_str: str, consts: list) -> list:
-    if re.match(r"^\s*\$curlyLeft\s*$", input_str):  # ???
+    if re.match(r"^\s*\$curlyLeft\s*$", input_str):
         op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
-        op.text = "'{'"
-    elif re.match(r"^\s*\$curlyRight\s*$", input_str):  # ???
+        op.text = "{"
+        return op
+    elif re.match(r"^\s*\$curlyRight\s*$", input_str):
         op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
-        op.text = "'}'"
+        op.text = "}"
+        return op
     elif re.match(r"^\s*true\s*$", input_str, re.IGNORECASE):
         op = ET.Element("op", attrib={"kind": "const", "type": "bool", "prio": "8"})
-        op.text = 1
+        op.text = "1"
+        return op
     elif re.match(r"^\s*false\s*$", input_str, re.IGNORECASE):
         op = ET.Element("op", attrib={"kind": "const", "type": "bool", "prio": "8"})
-        op.text = 0
-    # prio 1
+        op.text = "0"
+        return op
+    # prio 1: ( )
     elif ")" in input_str:
         sub_str = input_str.split(")", 1)[0]
         bracket = re.sub(r"^.*\(", "", sub_str)
@@ -813,14 +817,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "min"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("min$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('min$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("max"):
@@ -830,14 +833,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "max"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("max$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('max$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("rshift"):
@@ -847,14 +849,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "rshift"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("rshift$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('rshift$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("lshift"):
@@ -864,14 +865,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "lshift"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("lshift$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('lshift$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("log"):
@@ -881,14 +881,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "log"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("log$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('log$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"dec\d*$", lbrack):
@@ -896,17 +895,18 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op = ET.Element(
                 "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
-            ET.SubElement(
-                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "'dec'"
             op_sub = ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            )
+            op_sub.text = "dec"
+            op_sub2 = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
             )
-            op_sub.text = 1 if lbrack.endswith("dec") else lbrack.split("dec", 1)[-1]
+            op_sub2.text = "1" if lbrack.endswith("dec") else lbrack.split("dec", 1)[-1]
             op.append(to_tree_essence(bracket, consts))
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace(r"dec\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r'dec\d*$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"hex\d*$", lbrack):
@@ -914,17 +914,18 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op = ET.Element(
                 "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
-            ET.SubElement(
-                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "'hex'"
             op_sub = ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            )
+            op_sub.text = "hex"
+            op_sub2 = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
             )
-            op_sub.text = 1 if lbrack.endswith("hex") else lbrack.split("hex", 1)[-1]
+            op_sub2.text = "1" if lbrack.endswith("hex") else lbrack.split("hex", 1)[-1]
             op.append(to_tree_essence(bracket, consts))
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace(r"hex\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r'hex\d*$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"bin\d*$", lbrack):
@@ -932,17 +933,18 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op = ET.Element(
                 "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
-            ET.SubElement(
-                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "'bin'"
             op_sub = ET.SubElement(
+                op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
+            )
+            op_sub.text = "bin"
+            op_sub2 = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
             )
-            op_sub.text = 1 if lbrack.endswith("bin") else lbrack.split("bin", 1)[-1]
+            op_sub2.text = "1" if lbrack.endswith("bin") else lbrack.split("bin", 1)[-1]
             op.append(to_tree_essence(bracket, consts))
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace(r"bin\d*$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace(r'bin\d*$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif re.match(r"eng$", lbrack):
@@ -950,16 +952,16 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op = ET.Element(
                 "op", attrib={"kind": "func", "type": "string", "prio": "8"}
             )
-            ET.SubElement(
+            op_sub = ET.SubElement(
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
-            ).text = "'eng'"
+            )
+            op_sub.text = "eng"
             op.append(to_tree_essence(bracket, consts))
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("eng$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('eng$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
-
         elif lbrack.endswith("list"):
             subtree = []
             op = ET.Element("op", attrib={"kind": "func", "type": "int", "prio": "8"})
@@ -967,14 +969,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "list"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("list$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('list$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         elif lbrack.endswith("pos"):
@@ -984,14 +985,13 @@ def to_tree_essence(input_str: str, consts: list) -> list:
                 op, "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             )
             op_sub.text = "pos"
-
             for token in bracket.split(","):
                 elements = to_tree_essence(token, consts)
                 for element in elements:
                     op.append(element)
             subtree.append(op)
             return to_tree_essence(
-                f"{lbrack.replace("pos$", "")}$${len(consts) + 1}{rbrack}",
+                f"{lbrack.replace('pos$', '')}$${len(consts) + 1}{rbrack}",
                 consts + [subtree],
             )
         else:
@@ -1015,7 +1015,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op.append(to_tree_essence(andr, consts))
             return op
         elif or_length < and_length and or_length < xor_length:
-            orl = re.sub(r"&+$", "", input_str[: len(input_str) - or_length])
+            orl = re.sub(r"\|+$", "", input_str[: len(input_str) - or_length])
             op = ET.Element("op", attrib={"kind": "or", "type": "bool", "prio": "1"})
             op.append(to_tree_essence(orl, consts))
             op.append(to_tree_essence(orr, consts))
@@ -1287,7 +1287,7 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "!" in input_str:  # monadic operators
         op = ET.Element("op", attrib={"kind": "not", "type": "bool", "prio": "6"})
-        op.append(to_tree_essence(input_str.split("!", 1)[-1]), consts)
+        op.append(to_tree_essence(input_str.split("!", 1)[-1], consts))
         return op
     elif input_str.strip().startswith("§"):
         op = ET.Element("op", attrib={"kind": "sub", "type": "int", "prio": "3"})
@@ -1295,34 +1295,45 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
         )
         op_sub.text = 0
-        op.append(to_tree_essence(input_str.split("§", 1)[1]), consts)
+        op.append(to_tree_essence(input_str.split("§", 1)[1], consts))
         return op
     elif input_str.strip().startswith("$$"):  # constants $$
-        return consts[
-            int(input_str.split("$$", 1)[1]) - 1
-        ]  # added -1 bc of python indexing from 0
+        try:
+            # Extract the index after $$
+            index_str = input_str.split("$$", 1)[1].strip()
+            # Find the first non-digit character
+            index_end = 0
+            while index_end < len(index_str) and index_str[index_end].isdigit():
+                index_end += 1
+            # Get just the number part
+            index = int(index_str[:index_end]) - 1
+            if 0 <= index < len(consts):
+                return consts[index]
+            else:
+                raise ValueError(f"Constant index {index + 1} out of range")
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Invalid constant reference in '{input_str}': {str(e)}")
     elif input_str.strip().startswith("$"):  # variables $
         op = ET.Element("op", attrib={"kind": "var", "prio": "7"})
         if re.match(r"^\s*\$[a-z]\s*$", input_str):
             op.set("type", "int")
         op.text = input_str.split("$", 1)[1].strip()
         return op
-
     elif input_str.strip().upper().startswith("0B"):  # numeric litarals
         op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
-        op.text = str2base(input_str.strip()[2:], 2)
+        op.text = str(str2base(input_str.strip()[2:], 2))
         return op
     elif input_str.strip().upper().startswith("0X"):
         op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
-        op.text = str2base(input_str.strip()[2:], 16)
+        op.text = str(str2base(input_str.strip()[2:], 16))
         return op
     elif input_str.strip().upper().startswith("0O"):
         op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
-        op.text = str2base(input_str.strip()[2:], 8)
+        op.text = str(str2base(input_str.strip()[2:], 8))
         return op
     elif re.match(r"^\d+$", input_str.strip()):
         op = ET.Element("op", attrib={"kind": "const", "type": "int", "prio": "8"})
-        op.text = str2base(input_str.strip(), 10)
+        op.text = str(str2base(input_str.strip(), 10))
         return op
     else:
         op = ET.Element("op", attrib={"kind": "const", "type": "string", "prio": "8"})
@@ -1331,20 +1342,26 @@ def to_tree_essence(input_str: str, consts: list) -> list:
 
 
 def str2base(input_str: str, base: int):
+    # Remove prefix if present
     input_str = re.sub(r"^0[xyzob]", "", input_str, flags=re.IGNORECASE).upper()
+    # Define valid symbols for each base
+    symbols = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:base]
 
-    if base == 16:
-        symbols = "0123456789ABCDEF"
-    elif base == 8:
-        symbols = "01234567"
-    elif base == 2:
-        symbols = "01"
-    else:
-        raise ValueError("ERROR: such 'base' is not supported.")
+    if len(input_str) == 0:
+        raise ValueError("ERROR: the string is empty!")
 
-    if len(input_str) == 0 or not all(c in symbols for c in input_str):
-        raise ValueError("ERROR: the string contains invalid characters or is empty!")
+    if base < 2:
+        raise ValueError(f"ERROR: base {base} is not supportet!")
 
+    if not all(c in symbols for c in input_str):
+        raise ValueError(
+            f"ERROR: the string contains invalid characters for base {base}!"
+        )
+
+    # For base 10, we use Python's built-in int conversion
+    if base == 10:
+        return int(input_str)
+    # For other bases, use the manual conversion
     value = 0
     for i, char in enumerate(reversed(input_str)):
         digit_value = symbols.index(char)
@@ -1593,13 +1610,15 @@ def num_essence(
             return str2base(in_list.text[2:], 16)
         elif in_list.text.upper().startswith("0O"):
             return str2base(in_list.text[2:], 8)
+        elif re.match(r"^\d+$", in_list.text):
+            return int(in_list.text)
         else:
-            return in_list.text
-    elif (
-        in_list.get("kind") == "const"
-        and in_list.get("type") == "string"
-        and re.match(r"^\d+$", in_list.text)
-    ):
+            raise ValueError(f"ERROR: Non-numeric value {in_list.text}")
+    elif in_list.get("kind") == "const" and in_list.get("type") == "string":
+        # Try to convert string to number if it's a numeric string
+        if re.match(r"^\d+$", in_list.text):
+            return int(in_list.text)
+        # For non-numeric strings, return the string value
         return in_list.text
     elif in_list.get("kind") == "const":
         if warning == "fatal":
@@ -1701,7 +1720,7 @@ def num_essence(
     ):
         index = num_essence(in_list[2], context, paramaps2)
         paras = []
-        if in_list[1].get("kind") == "func" and in_list[1][0].text == "list":  # ???
+        if in_list[1].get("kind") == "func" and in_list[1][0].text == "list":
             for i, p in enumerate(in_list[1]):
                 if i - 2 == index:
                     paras.append(p)
@@ -1731,7 +1750,7 @@ def num_essence(
                 tree = parse_essence(get_parameter[0])
                 if tree.get("kind") == "func" and tree[0].text == "list":
                     for i, tr in enumerate(tree):
-                        if i - 2 == index:  # ???
+                        if i - 2 == index:
                             paras.append(tr)
                 else:
                     raise ValueError(
@@ -1750,7 +1769,7 @@ def num_essence(
         else:
             if warning == "fatal":
                 raise ValueError(
-                    f"ERROR: pos({in_list[1]}, {index}) index out of bounds!"
+                    f"ERROR: pos({in_list[1]},{index}) index out of bounds!"
                 )
             else:
                 print("pos(...) replaced by -1")
@@ -1763,14 +1782,20 @@ def num_essence(
             return -1
 
 
-def integer_essence(input_str: str, context: str = None, varmap: list = None):
+def integer_essence(
+    input_str: str, context: str = None, paramaps2=None, varmap: list = None
+):
     if context is None:
-        return integer_essence(input_str, "0")
+        return integer_essence(input_str, context="0", paramaps2=paramaps2)
     elif varmap is None:
-        return num_essence(parse_essence(input_str), context)
+        return num_essence(
+            parse_essence(input_str), context=context, paramaps2=paramaps2
+        )
     else:
         return num_essence(
-            prune_essence(prune_essence(input_str), context, varmap, 0), context
+            prune_essence(prune_essence(input_str), context, varmap, 0),
+            context=context,
+            paramaps2=paramaps2,
         )
 
 
@@ -2037,20 +2062,19 @@ def main():
         in_list = []
 
         op = ET.Element("op", attrib={"kind": "add", "type": "string", "prio": "1"})
-        op.text = f"4957"
+        op.text = "4957"  # Store as string
         sub_1 = ET.SubElement(
             op, "op", attrib={"kind": "var", "type": "string", "prio": "2"}
         )
-        sub_1.text = f"4560"
+        sub_1.text = "4560"  # Store as string
         sub_2 = ET.SubElement(
             op, "op", attrib={"kind": "var", "type": "string", "prio": "2"}
         )
-        sub_2.text = f"276"
+        sub_2.text = "276"  # Store as string
         in_list.append(op)
 
-        context = "0"
-
-        res = num_essence(in_list[0], "0", paramaps_path)
+        strg = f"{210} > {32}"
+        res = integer_essence(strg, paramaps2=paramaps_path)
         print(res)
 
     except Exception as e:
