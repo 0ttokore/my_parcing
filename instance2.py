@@ -1024,15 +1024,16 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             xorl = input_str[: len(input_str) - xor_length - 1]
             right = to_tree_essence(xorr, consts)
             left = to_tree_essence(xorl, consts)
-            if right.get("type") != "bool" or left.get("type") != "bool":
-                return to_tree_essence(f"{xorl}%%{xorr}", consts)
-            else:
+            if ((right.get("type") == "bool" or right.get("type") == "int")
+            and (left.get("type") == "bool" or left.get("type") == "int")):
                 op = ET.Element(
                     "op", attrib={"kind": "xor", "type": "bool", "prio": "1"}
                 )
                 op.append(left)
                 op.append(right)
                 return op
+            else:
+                return to_tree_essence(f"{xorl}%%{xorr}", consts)
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif (
@@ -1178,22 +1179,22 @@ def to_tree_essence(input_str: str, consts: list) -> list:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
 
     elif "+" in input_str or "-" in input_str:  # add/sub: + -
-        addr = re.sub(r"^.*+", "", input_str)
+        addr = re.sub(r"^.*\+", "", input_str)
         subr = re.sub(r"^.*-", "", input_str)
         add = len(addr)
         sub = len(subr)
-        addl = input_str[: len(input_str) - add - 1]
-        subl = input_str[: len(input_str) - sub - 1]
+        addl = input_str[: len(input_str) - add - 1]  # before last +
+        subl = input_str[: len(input_str) - sub - 1]  # before last -
 
         if input_str.strip().startswith("+"):
             return to_tree_essence(input_str.split("+", 1)[1], consts)
         elif input_str.strip().startswith("-"):
-            return to_tree_essence(f"§{input_str.split('-', 1)[1]}{consts}")
+            return to_tree_essence(f"§{input_str.split('-', 1)[1]}", consts)
         elif add < sub and addl.endswith("-"):
             left = to_tree_essence(subl, consts)
             right = to_tree_essence(addr, consts)
             op = ET.Element("op", attrib={"kind": "sub", "prio": "3"})
-            if left[0].get("type") == "int" and right[1].get("type") == "int":
+            if left.get("type") == "int" and right.get("type") == "int":
                 op.set("type", "int")
             op.append(left)
             op.append(right)
@@ -1201,27 +1202,26 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         elif add < sub:
             left = to_tree_essence(re.sub(r"\+\s*$", "", addl), consts)
             right = to_tree_essence(addr, consts)
-            if left[0].get("kind") == "cat" or right[0].get("kind") == "cat":
+            # left and right elements dont have inner elements, so we'll call 'em themselves
+            if left.get("kind") == "cat" or right.get("kind") == "cat":
                 op = ET.Element("op", attrib={"kind": "cat", "prio": "3"})
                 op.append(left)
                 op.append(right)
                 return op
-            elif (left[0].get("type") == "string" and left[0].text != "#") or (
-                right[0].get("type") == "string" or right[0].text != "#"
+            elif (left.get("type") == "string" and left.text != "#") or (
+                right.get("type") == "string" and right.text != "#"
             ):
-                op = ET.Element(
-                    "op", attrib={"kind": "cat", "type": "string", "prio": "3"}
-                )
+                op = ET.Element("op", attrib={"kind": "cat", "type": "string", "prio": "3"})
                 op.append(left)
                 op.append(right)
                 return op
-            elif left[0].get("kind") == "const" and len(left[0].text) == 0:
+            elif left.get("kind") == "const" and len(left.text) == 0:
                 return right
-            elif right[0].get("kind") == "const" and len(right[0].text) == 0:
+            elif right.get("kind") == "const" and len(right.text) == 0:
                 return left
             else:
                 op = ET.Element("op", attrib={"kind": "add", "prio": "3"})
-                if left[0].get("type") == "int" and right[0].get("type") == "int":
+                if left.get("type") == "int" and right.get("type") == "int":
                     op.set("type", "int")
                 op.append(left)
                 op.append(right)
@@ -1266,22 +1266,21 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
     elif "%" in input_str:  # mod: % %% (was ^)
-        modr = re.sub("^.*%", "", input_str)
-        expr = re.sub("^.*%%", "", input_str)
-        mod = len(modr)  # after last %
-        exp = len(expr)  # after last %%
-
-        if mod < exp:
-            modl = input_str[: len(input_str) - mod - 1]  # before last %
-            op = ET.Element("op", attrib={"kind": "mod", "type": "int", "prio": "5"})
-            op.append(to_tree_essence(modl, consts))
-            op.append(to_tree_essence(modr, consts))
-            return op
-        elif exp < mod:
-            expl = input_str[: len(input_str) - exp - 2]
+        # First check for %% (exponentiation)
+        if "%%" in input_str:
+            expr = re.sub("^.*%%", "", input_str)
+            expl = input_str[: len(input_str) - len(expr) - 2]  # before last %%
             op = ET.Element("op", attrib={"kind": "exp", "type": "int", "prio": "5"})
             op.append(to_tree_essence(expl, consts))
             op.append(to_tree_essence(expr, consts))
+            return op
+        # Then check for % (modulo)
+        elif "%" in input_str:
+            modr = re.sub("^.*%", "", input_str)
+            modl = input_str[: len(input_str) - len(modr) - 1]  # before last %
+            op = ET.Element("op", attrib={"kind": "mod", "type": "int", "prio": "5"})
+            op.append(to_tree_essence(modl, consts))
+            op.append(to_tree_essence(modr, consts))
             return op
         else:
             raise ValueError(f'ERROR: Parsing error in "{input_str}"!')
@@ -1291,10 +1290,10 @@ def to_tree_essence(input_str: str, consts: list) -> list:
         return op
     elif input_str.strip().startswith("§"):
         op = ET.Element("op", attrib={"kind": "sub", "type": "int", "prio": "3"})
-        op_sub = ET.Element(
+        op_sub = ET.SubElement(
             op, "op", attrib={"kind": "const", "type": "int", "prio": "8"}
         )
-        op_sub.text = 0
+        op_sub.text = "0"
         op.append(to_tree_essence(input_str.split("§", 1)[1], consts))
         return op
     elif input_str.strip().startswith("$$"):  # constants $$
@@ -1478,12 +1477,12 @@ def num_essence(
         )
     elif in_list.get("kind") == "or" and len(in_list) > 1:
         return (
-            0
+            1
             if (
-                num_essence(in_list[0], context, paramaps2) == 0
-                or num_essence(in_list[1], context, paramaps2) == 0
+                num_essence(in_list[0], context, paramaps2) == 1
+                or num_essence(in_list[1], context, paramaps2) == 1
             )
-            else 1
+            else 0
         )
     elif in_list.get("kind") == "xor" and len(in_list) > 1:
         return (
@@ -2048,32 +2047,10 @@ def compare(left, right):
 
 def main():
     try:
-        print()
-        strg = "min(hello log)(log)'print'"
-        strg2 = "0xF02C0800"
-
-        path = "./1.xml"
-        tree = ET.parse(path)
-        root = tree.getroot()
-
         paramaps_path = "used/Paramaps2.xml"
         root = ET.parse(paramaps_path).getroot()
 
-        in_list = []
-
-        op = ET.Element("op", attrib={"kind": "add", "type": "string", "prio": "1"})
-        op.text = "4957"  # Store as string
-        sub_1 = ET.SubElement(
-            op, "op", attrib={"kind": "var", "type": "string", "prio": "2"}
-        )
-        sub_1.text = "4560"  # Store as string
-        sub_2 = ET.SubElement(
-            op, "op", attrib={"kind": "var", "type": "string", "prio": "2"}
-        )
-        sub_2.text = "276"  # Store as string
-        in_list.append(op)
-
-        strg = f"{210} > {32}"
+        strg = f"-12 + 4*5"
         res = integer_essence(strg, paramaps2=paramaps_path)
         print(res)
 
