@@ -83,23 +83,23 @@ def prune_essence(
                     for i, r in enumerate(right):
                         if i - 2 == index:
                             paras.append(r)
-                elif right.get("kind") == "var" and root.find( # дописать
-                    f".//{context}:{right.text}"
-                ):  # дописать
-                    parameter_node = root.find(f".//{context}:{right.text}")
-                    value_nodes = [
-                        child.text
-                        for child in parameter_node.findall("*")
-                        if child.tag.endswith("Value") and child.text is not None
-                    ]
-                    get_parameter = sorted(value_nodes, key=len)
+                # elif right.get("kind") == "var" and root.find( # not ready
+                #     f".//{context}:{right.text}"
+                # ):  # not ready
+                #     parameter_node = root.find(f".//{context}:{right.text}")
+                #     value_nodes = [
+                #         child.text
+                #         for child in parameter_node.findall("*")
+                #         if child.tag.endswith("Value") and child.text is not None
+                #     ]
+                #     get_parameter = sorted(value_nodes, key=len)
 
-                    for pm2 in get_parameter: # дописать
-                        if root.find(".//DataType") is not None:
-                            if root.find(".//DataType").get("xsi:type") == "Array":
-                                tree = parse_essence(
-                                    re.sub(r"^&quot;(list.*)&quot;$", r"1", pm2)
-                                )
+                #     for pm2 in get_parameter: # not ready
+                #         if root.find(".//DataType") is not None:
+                #             if root.find(".//DataType").get("xsi:type") == "Array":
+                #                 tree = parse_essence(
+                #                     re.sub(r"^&quot;(list.*)&quot;$", r"1", pm2)
+                #                 )
 
             else:
                 op_element = ET.Element("op")
@@ -144,29 +144,24 @@ def prune_essence(
             ET.Element(
                 "op", attrib={"kind": "const", "type": "string", "prio": "8"}
             ).text = suppress
-        elif in_list.get("kind") == "var":  # дописать
+        elif in_list.get("kind") == "var":  # not ready
             if paramaps2:
                 key = f"{context}:{in_list.text}"
-                for param in paramaps2.get_parameters(key):
-                    get_parameter.append(param.replace('"', ''))
+                # for param in paramaps2.get_parameters(key):
+                #     get_parameter.append(param.replace('"', ''))
                     
-                if paramaps2.has_filter(context):
-                    get_parameter.extend(get_filter(in_list.text, context))
-                
-            
-            
-            
-            
-            
-        elif in_list.get("kind") == "var":  # дописать
+                # if paramaps2.has_filter(context):
+                #     get_parameter.extend(get_filter(in_list.text, context))
+    
+        elif in_list.get("kind") == "var":  # not ready
             pass
         elif (
             in_list.get("kind") == "var"
             and len(varmap) > 0
             and varmap.get("Name") == in_list.text
-        ):  # дописать
+        ):  # not ready
             pass
-        elif in_list.get("kind") == "var":  # дописать
+        elif in_list.get("kind") == "var":  # not ready
             pass
 
         elif in_list.get("kind") == "const" or in_list.get("kind") == "var":
@@ -284,7 +279,7 @@ def prune_essence(
                 and len(varmap) != 0
                 and varmap.get("Name") == in_list[0].text
                 and varmap.get("fmt")
-            ):  # дописать
+            ):  # not ready
                 varmap_el = [el for el in varmap if el.get("Name") == in_list[0].text]
 
         elif (
