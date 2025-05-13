@@ -11,7 +11,7 @@ from copy import deepcopy
 from collections import OrderedDict
 import xml.dom.minidom
 
-from mathlib_functions import integer_essence as integerEssence
+from mathlib2 import integer_essence as integerEssence
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
