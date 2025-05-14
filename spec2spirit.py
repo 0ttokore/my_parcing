@@ -156,8 +156,50 @@ def castable(input_str: str, type: str) -> bool:
         return False
 
 
-def get_parameter(input_str: str, context: str) -> str: # TODO: implement
-    return input_str
+# TODO: check searching key in para_maps2, bc it looks like it doen't matches
+def get_parameter(par_name: str, context: str, para_maps2: ET.Element, suppress: str = '', warning: str = 'recover') -> str:
+    # return the content of the brackets if it exists, else return the parameter name
+    key = re.sub(r"^\{(.*)\}.*$", r"\1", par_name) if par_name.startswith('{') else par_name
+
+    # Check if context exists in para_maps2
+    if not any(str(param.get('Int_Class_ID')) == context for param in para_maps2):
+        error_msg = f'ERROR: Undefined context {context} for parameter "{key}"'
+        logger.error(error_msg)
+        return "?"
+
+    if key == 'suppress' and len(suppress) > 0:
+        return suppress
+    elif len(para_maps2.findall(f".//{context}:{key}")) > 0:
+        return get_parameter_from_list(para_maps2, context, key)
+    elif key.startswith('$') and len(para_maps2.findall(f".//{context}:{key[1:]}")) > 0:
+        return get_parameter_from_list(para_maps2, context, key[1:])
+    else:
+        # Find the context's instance name for the error message
+        context_elem = next((param for param in para_maps2 if param.get('Int_Class_ID') == context), None)
+        context_name = context_elem.get('InstanceName') if context_elem else ''
+        error_msg = f"ERROR: Undefined parameter {par_name} in Context {context_name} [{context}]"
+        
+        if warning == 'fatal':
+            raise ValueError(error_msg)
+        else:
+            logger.warning(error_msg)
+            logger.info(f'Keeping value as "{par_name}"')
+            return par_name
+
+
+def get_parameter_from_list(para_maps2: ET.Element, context: str, key: str) -> str:
+    list_of_params = []
+    for param in para_maps2.findall(f".//f'{context}:{key[1:]}'"):
+        # Find all elements that end with 'Value' and sort by length of tag name
+        value_elements = []
+        for elem in param.iter():
+            if elem.tag.endswith("Value"):
+                text = elem.text or ""
+                value_elements.append((len(elem.tag), text))
+        # Sort by length of tag name
+        value_elements.sort(key=lambda x: x[0])
+        list_of_params.extend(text for _, text in value_elements)
+    return list_of_params[0]
 
 
 def main():
@@ -165,6 +207,10 @@ def main():
         strg = 'max(1,2,3,4,5)'
         res = evaluate(strg)
         print(res)
+
+        strg2 = '{max(1,2,3,4,5)}'
+        key = re.sub(r"^\{(.*)\}.*$", r"\1", strg2)
+        print(key)
     
     
     except Exception as e:
