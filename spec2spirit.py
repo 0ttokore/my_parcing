@@ -202,15 +202,126 @@ def get_parameter_from_list(para_maps2: ET.Element, context: str, key: str) -> s
     return list_of_params[0]
 
 
+def Connects(Connections: str) -> list:
+    with open(Connections, 'r') as file:  # TODO: check if it's a file or a directory
+        connex = ET.parse(file).getroot()
+    
+    ports = [] # TODO: check what file it's used in, bc it doesn't contain elements InterfaceItem and Type, text == 'PORT'
+    for item in connex.findall('.//*/*/*[local-name()="InterfaceItem"]'):
+        type_elem = item.find('./*[local-name()="Type"]')
+        if type_elem is not None and type_elem.text == 'PORT':
+            port = ET.Element('port')
+            
+            # Get Int_Class_ID text for ID attribute
+            id_elem = item.find('./*[local-name()="Int_Class_ID"]')
+            if id_elem is not None and id_elem.text:
+                port.set('ID', id_elem.text)
+            
+            # Copy required elements
+            for elem_name in ['IsDriver', 'ConceptInstanceName', 'ConceptName', 'Name']:
+                elem = item.find(f'./*[local-name()="{elem_name}"]')
+                if elem is not None:
+                    port.append(ET.fromstring(ET.tostring(elem)))
+            ports.append(port)
+
+    sockets = [] # TODO: check what file it's used in, bc it doesn't contain elements InterfaceItem and Type, text == 'INTERFACE'
+    for item in connex.findall('.//*/*/*[local-name()="InterfaceItem"]'):
+        type_elem = item.find('./*[local-name()="Type"]')
+        if type_elem is not None and type_elem.text == 'INTERFACE':
+            socket = ET.Element('socket')
+            
+            # Get Int_Class_ID text for ID attribute
+            id_elem = item.find('./*[local-name()="Int_Class_ID"]')
+            if id_elem is not None and id_elem.text:
+                socket.set('ID', id_elem.text)
+            
+            # Copy required elements
+            for elem_name in ['ConceptInstanceName', 'ConceptName', 'Name']:
+                elem = item.find(f'./*[local-name()="{elem_name}"]')
+                if elem is not None:
+                    socket.append(ET.fromstring(ET.tostring(elem)))
+                ET.SubElement(socket, 'IsDriver').text = 'False'
+            sockets.append(socket)
+
+    for item in connex.findall('.//*/*[local-name()="ConnectivityItem"]'): # TODO: check if file contains elements ConnectivityItem, InterfaceItemRef
+        nets = []
+        for item in connex.findall('.//*[local-name()="InterfaceItemRef"]'):
+            nets.append(ports.findall(f'.//*[@ID="{item.text}"]'))
+            nets.append(sockets.findall(f'.//*[@ID="{item.text}"]'))
+        if len(nets.findall('.//*[local-name()="port" and *[local-name()="IsDriver"]/text()="True"]')):
+            driver = []
+            out = ET.Element('out')
+            for net in nets.findall('.//*[local-name()="port" and *[local-name()="IsDriver"]/text()="True"]'):
+                pass
+
+
+
+def normalize_concept_names(con_i: str, con_name: str) -> list:
+    if '|' in con_i: # legacy COX format
+        res = []
+        for token in con_i.split('|'):
+            if ':' in token:
+                res.append(ET.Element('pair', {'ci': token.split(':')[0], 'cn': token.split(':')[1]}))
+            else:
+                res.append(normalize_concept_names(token, con_name))
+        return res
+    elif '=(' in con_name: # socket member is array
+        res = []
+        if ';' in con_name and len(con_name.split(';')[0]) < len(con_name.split('=(')[0]):
+            res.append(normalize_concept_names(con_i, con_name.split(';')[0]))
+            res.append(normalize_concept_names(con_i, con_name.split(';')[1]))
+        elif ';' in con_name.split(')')[1]:
+            res.append(normalize_concept_names(con_i, re.sub(r'\).*$', ')', con_name)))
+            res.append(normalize_concept_names(con_i, re.sub(r'^.*\)\s*;', '', con_name)))
+        else:
+            member = con_name.split('=(')[0]
+            for token in re.sub(r'^.+?=\((.*)\)$', '$1', con_name).split(','):
+                for current_item in normalize_concept_names(con_i, token):
+                    if '=' in current_item.get('cn'):
+                        res.append(ET.Element('pair', {'ci': current_item.get('ci'), 'cn': f"{member}[{re.sub(r'=', ']=', current_item.get('cn'))}"}))
+                    else:
+                        res.append(ET.Element('pair', {'ci': current_item.get('ci'), 'cn': f"{member}={current_item.get('cn')}"}))
+        return res
+    elif ';' in con_name: # members
+        res = []
+        res.append(normalize_concept_names(con_i, con_name.split(';')[0]))
+        res.append(normalize_concept_names(con_i, con_name.split(';')[1]))
+        return res
+    elif '=' in con_name: # array
+        res = []
+        range = con_name.split('=')[0]
+        for current_item in normalize_concept_names(con_i, con_name.split('=')[1]):
+            res.append(ET.Element('pair', {'ci': current_item.get('ci'), 'cn': f"{range}={current_item.get('cn')}"}))
+        return res
+    elif '|' in con_name: # alias
+        res = []
+        for token in con_name.split('|'):
+            if ':' in token:
+                res.append(ET.Element('pair', {'ci': token.split(':')[0], 'cn': token.split(':')[1]}))
+            else:
+                res.append(ET.Element('pair', {'ci': con_i, 'cn': token}))
+        return res
+    # returns list bc other blocks return list, so it's easier to handle
+    if ':' in con_i: # legacy COX format
+        return [ET.Element('pair', {'ci': con_i.split(':')[0], 'cn': con_i.split(':')[1]})]
+    elif ':' in con_name: # legacy COX CI
+        return [ET.Element('pair', {'ci': con_name.split(':')[0], 'cn': con_name.split(':')[1]})]
+    else:
+        return [ET.Element('pair', {'ci': con_i, 'cn': con_name})]
+
+
 def main():
     try:
-        strg = 'max(1,2,3,4,5)'
-        res = evaluate(strg)
-        print(res)
+        Connections = './fixes/extra.xml'
+        con_i = '1:1,2:2,3:3'
 
-        strg2 = '{max(1,2,3,4,5)}'
-        key = re.sub(r"^\{(.*)\}.*$", r"\1", strg2)
-        print(key)
+        # strg = 'max(1,2,3,4,5)'
+        # res = evaluate(strg)
+        # print(res)
+
+        # strg2 = '{max(1,2,3,4,5)}'
+        # key = re.sub(r"^\{(.*)\}.*$", r"\1", strg2)
+        # print(key)
     
     
     except Exception as e:
