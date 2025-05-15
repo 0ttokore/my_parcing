@@ -241,7 +241,7 @@ def Connects(Connections: str) -> list:
             ET.SubElement(socket, 'IsDriver').text = 'False'
             sockets.append(socket)
 
-    connects = []
+    connects = []  # result list of net2 elements
     # Process ConnectivityItems
     for item in connex.findall('.//*/*[local-name()="ConnectivityItem"]'):
         nets = []
@@ -257,74 +257,122 @@ def Connects(Connections: str) -> list:
                        if net.tag == 'port' and 
                        net.find('./*[local-name()="IsDriver"]') is not None and 
                        net.find('./*[local-name()="IsDriver"]').text == 'True']
+        driver_sockets = [net for net in nets if net.tag == 'socket']
         
-        if not driver_ports:
-            continue
-
-        # Process driver ports
-        driver = ET.Element('out')
-        for port in driver_ports:
-            #  preparing function normalize_concept_names() arguments:
-            ci_elem = port.find('./*[local-name()="ConceptInstanceName"]')
-            cn_elem = port.find('./*[local-name()="ConceptName"]')
-            name_elem = port.find('./*[local-name()="Name"]')
-            
-            if ci_elem is None or (cn_elem is None and name_elem is None):
-                continue
+        if len(driver_ports) > 0:
+            # Process driver ports
+            driver = ET.Element('out')
+            for port in driver_ports:
+                #  preparing function normalize_concept_names() arguments:
+                ci_elem = port.find('./*[local-name()="ConceptInstanceName"]')
+                cn_elem = port.find('./*[local-name()="ConceptName"]')
+                name_elem = port.find('./*[local-name()="Name"]')
                 
-            ci = ci_elem.text.replace('.', '_')
-            cn = cn_elem.text if cn_elem is not None else name_elem.text
-            
-            #  call normalize_concept_names() and make subelements out of it
-            for pair in normalize_concept_names(ci, cn):
-                ET.SubElement(driver, 'ConceptInstanceName').text = pair.get('ci')
-                ET.SubElement(driver, 'ConceptName').text = pair.get('cn')
+                if ci_elem is None or (cn_elem is None and name_elem is None):
+                    continue
+                    
+                ci = ci_elem.text.replace('.', '_')
+                cn = cn_elem.text if cn_elem is not None else name_elem.text
+                
+                #  call normalize_concept_names() and make subelements out of it
+                for pair in normalize_concept_names(ci, cn):
+                    ET.SubElement(driver, 'ConceptInstanceName').text = pair.get('ci')
+                    ET.SubElement(driver, 'ConceptName').text = pair.get('cn')
 
-        # Handle LVDS RX case
-        first_ci = driver.find('./*[local-name()="ConceptInstanceName"]')
-        if first_ci is not None:
-            lvds_rx = re.match(r'^P\d+_\d+_\d+', first_ci.text)
-            lvdsP = re.sub(r'^(P\d+)_\d+_(\d+)$', r'\1_\2', first_ci.text)
-            lvdsN = re.sub(r'^(P\d+)_(\d+)_\d+$', r'\1_\2', first_ci.text)
-            
-            # Process each concept name
-            for cn_elem in driver.findall('./*[local-name()="ConceptName"]'):  # TODO: finish checking this block. check .text is not None!!!
-                # outname = cn_elem.text
-                # for port in nets:
-                #     if (port.tag != 'port' or 
-                #         not port.find('./*[local-name()="IsDriver"]') or 
-                #         port.find('./*[local-name()="IsDriver"]').text != 'False'):
-                #         continue
+            # Handle LVDS RX case
+            first_ci = driver.find('./*[local-name()="ConceptInstanceName"]')
+            if first_ci is not None:
+                lvds_rx = re.match(r'^P\d+_\d+_\d+', first_ci.text)
+                lvdsP = re.sub(r'^(P\d+)_\d+_(\d+)$', r'\1_\2', first_ci.text)
+                lvdsN = re.sub(r'^(P\d+)_(\d+)_\d+$', r'\1_\2', first_ci.text)
+                
+                # Process each concept name
+                for cn_elem in driver.findall('./*[local-name()="ConceptName"]'):  # TODO: finish checking this block. check .text is not None!!!
+                    outname = cn_elem.text
+                    for port in nets:
+                        if (port.tag != 'port' or 
+                            not port.find('./*[local-name()="IsDriver"]') or 
+                            port.find('./*[local-name()="IsDriver"]').text != 'False'):
+                            continue
+                            
+                        sink = port
+                        sink_ci = sink.find('./*[local-name()="ConceptInstanceName"]').text.replace('.', '_')
+                        #  in xslt logic we comnbine results of both names and take the first one
+                        #  it looks like one of them is always None, so we take the other one
+                        sink_cn = (sink.find('./*[local-name()="ConceptName"]') or 
+                                    sink.find('./*[local-name()="Name"]')).text
                         
-                #     sink = port
-                #     sink_ci = sink.find('./*[local-name()="ConceptInstanceName"]').text.replace('.', '_')
-                #     sink_cn = (sink.find('./*[local-name()="ConceptName"]') or 
-                #                 sink.find('./*[local-name()="Name"]')).text
-                    
-                #     allnames = normalize_concept_names(sink_ci, sink_cn)
-                #     allnames_cn = [n.get("cn") for n in allnames]
-                    
-                #     for name_pair in allnames:
-                #         cn = name_pair.get('cn')
-                #         if ((not lvds_rx and not (cn.endswith('P') or cn.endswith('N'))) or 
-                #             (lvds_rx and (cn.endswith('P') or cn.endswith('N')) and 
-                #                 any(f'|{cn[:-1]}|' in f'|{"|".join(allnames_cn)}|'))):
-                            
-                #             net2 = ET.Element('net2')
-                            
-                #             # Create in element
-                #             in_elem = ET.SubElement(net2, 'in')
-                #             ET.SubElement(in_elem, 'ConceptInstanceName').text = name_pair.get('ci')
-                #             ET.SubElement(in_elem, 'ConceptName').text = name_pair.get('cn')
-                            
-                #             # Create out element
-                #             out_elem = ET.SubElement(net2, 'out')
-                #             out_ci = ET.SubElement(out_elem, 'ConceptInstanceName')
-                #             out_ci.text = lvdsN if lvds_rx and cn.endswith('N') else lvdsP
-                #             ET.SubElement(out_elem, 'ConceptName').text = re.sub(r'^OUT.*$', 'OUT', outname)
-                            
-                #             connects.append(net2)
+                        allnames = normalize_concept_names(sink_ci, sink_cn)
+                        allnames_cn = [n.get("cn") for n in allnames]
+                        joined_string = '|'.join(['.' + name + '.' for name in allnames_cn])
+                        
+                        for name_pair in allnames:
+                            cn = name_pair.get('cn')
+                            if ((lvds_rx and not cn.endswith('P') or cn.endswith('N')) or 
+                                (not lvds_rx and cn.endswith('P') or cn.endswith('N') and 
+                                f'|{cn[:-1]}|' in f'|{joined_string}|')):
+                                    continue
+                            else:
+                                net2 = ET.Element('net2')
+                                
+                                # Create in element
+                                in_elem = ET.SubElement(net2, 'in')
+                                ET.SubElement(in_elem, 'ConceptInstanceName').text = name_pair.get('ci')
+                                ET.SubElement(in_elem, 'ConceptName').text = name_pair.get('cn')
+                                
+                                # Create out element
+                                out_elem = ET.SubElement(net2, 'out')
+                                out_ci = ET.SubElement(out_elem, 'ConceptInstanceName')
+                                out_ci.text = lvdsN if lvds_rx and cn.endswith('N') else lvdsP
+                                ET.SubElement(out_elem, 'ConceptName').text = re.sub(r'^OUT.*$', 'OUT', outname)
+                                
+                                connects.append(net2)
 
+        elif len(driver_sockets) >= 2:
+            driver = []
+            for socket in driver_sockets:
+                # Get ConceptInstanceName and ConceptName/Name
+                ci_elem = socket.find('./*[local-name()="ConceptInstanceName"]')
+                cn_elem = socket.find('./*[local-name()="ConceptName"]')
+                name_elem = socket.find('./*[local-name()="Name"]')
+                
+                if ci_elem is None or (cn_elem is None and name_elem is None):
+                    continue
+                    
+                ci = ci_elem.text.replace('.', '_')
+                cn = cn_elem.text if cn_elem is not None else name_elem.text
+                
+                # Create socket element
+                socket_elem = ET.Element('socket')
+                for item in normalize_concept_names(ci, cn):
+                    socket_elem.append(item)
+                driver.append(socket_elem)
+
+            for outer in driver[0]:
+                for item in driver[0][1:]:
+                    
+                    net2_1 = ET.Element('net2', {'socket': '1'})
+                    # Create in element
+                    in_elem = ET.SubElement(net2_1, 'in')
+                    ET.SubElement(in_elem, 'ConceptInstanceName').text = item.get('ci')
+                    ET.SubElement(in_elem, 'ConceptName').text = item.get('cn') + '_in'
+                    # Create out element
+                    out_elem = ET.SubElement(net2_1, 'out')
+                    ET.SubElement(out_elem, 'ConceptInstanceName').text = outer.get('ci')
+                    ET.SubElement(out_elem, 'ConceptName').text = outer.get('cn')
+                    connects.append(net2_1)
+                    
+                    net2_2 = ET.Element('net2', {'socket': '1'})
+                    # Create in element
+                    in_elem = ET.SubElement(net2_2, 'in')
+                    ET.SubElement(in_elem, 'ConceptInstanceName').text = outer.get('ci')
+                    ET.SubElement(in_elem, 'ConceptName').text = outer.get('cn') + '_in'
+                    # Create out element
+                    out_elem = ET.SubElement(net2_2, 'out')
+                    ET.SubElement(out_elem, 'ConceptInstanceName').text = item.get('ci')
+                    ET.SubElement(out_elem, 'ConceptName').text = item.get('cn')
+                    connects.append(net2_2)
+    
     return connects
 
 
