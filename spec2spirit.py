@@ -700,7 +700,79 @@ def name2Driver(rawname: str, iomode: str) -> list:
     return result
 
 
-def resolve_names(net: ET.Element) -> list:
+def resolve_names(net: list) -> list:  # net is list of Connects/in or Connects/out
+    pass
+
+
+def str2index(name: str) -> str:
+    sub_str = re.sub(r'^.+(\D)$', r'\1', name).upper()
+    alf = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'  # modified alfabet: add symbols from Q to Z
+    ix = alf.index(sub_str) if sub_str in alf else -1
+    return str(ix)
+
+
+def str2dec(in_str: str) -> int:  # modified to prevent recursion
+    result = 0
+    for char in in_str:
+        result = result * 10 + int(char)
+    return result
+
+
+def make_socket_nets(net: ET.Element, instance1: ET.Element, instance2: ET.Element) -> list:
+    socket_nets = []  # return list of nets
+    in_name = re.sub(r'(.*?)_in', r'\1', net.find('./*[local-name()="in"]/*[local-name()="ConceptName"]/text()'))
+    for elem_1 in instance1.findall(f'./*[local-name()="Socket" and @Name={in_name}]'):
+        for in_item in elem_1.findall('./*[local-name()="Member" and ./[local-name()="Direction"]/text()="in"]'):
+            in_port = in_item
+            in_bits = []
+            if in_item.find('./*[local-name()="Vector"]'):
+                nl = evaluate(in_item.find('./*[local-name()="Vector"]/*[local-name()="Left"]/text()'))
+                nr = evaluate(in_item.find('./*[local-name()="Vector"]/*[local-name()="Right"]/text()'))
+                if str_to_number(nl) < str_to_number(nr):
+                    in_bits.extend([i for i in range(int(nl), int(nr) + 1)])
+                else:
+                    in_bits.extend([i for i in range(int(nr), int(nl) + 1)])
+            wire = in_item.get('wire')
+            for elem_2 in instance2.findall(f'./*[local-name()="Socket" and @Name={net.find("./*[local-name()='out']/*[local-name()='ConceptName']/text()")}]'):
+                for out_item in elem_2.findall(f'./*[local-name()="Member" and @wire={wire}]'):
+                    out_port = out_item
+                    out_bits = []
+                    if out_item.find('./*[local-name()="Vector"]'):
+                        nl = evaluate(out_item.find('./*[local-name()="Vector"]/*[local-name()="Left"]/text()'))
+                        nr = evaluate(out_item.find('./*[local-name()="Vector"]/*[local-name()="Right"]/text()'))
+                        if str_to_number(nl) < str_to_number(nr):
+                            out_bits.extend([i for i in range(int(nl), int(nr) + 1)])
+                        else:
+                            out_bits.extend([i for i in range(int(nr), int(nl) + 1)])
+                    if len(in_bits):
+                        for k in range(len(in_bits)):
+                            subnet = ET.Element('Net')
+                            in_elem = ET.SubElement(subnet, 'in')
+                            ET.SubElement(in_elem, 'ConceptInstanceName').text = instance1.get('Int_Class_ID')
+                            ET.SubElement(in_elem, 'ConceptName').text = f'{in_port.text.strip()}_{in_bits[k]}'
+
+                            out_elem = ET.SubElement(subnet, 'out')
+                            ET.SubElement(out_elem, 'ConceptInstanceName').text = instance2.get('Int_Class_ID')
+                            str_join = f"_{out_bits[k]}" if len(out_bits) > k else ""
+                            ET.SubElement(out_elem, 'ConceptName').text = f'{out_port.text.strip()}{str_join}'
+
+                            socket_nets.extend(make_net(subnet, instance1))
+                    else:
+                        subnet = ET.Element('Net')
+                        in_elem = ET.SubElement(subnet, 'in')
+                        ET.SubElement(in_elem, 'ConceptInstanceName').text = instance1.get('Int_Class_ID')
+                        ET.SubElement(in_elem, 'ConceptName').text = in_port.text.strip()
+
+                        out_elem = ET.SubElement(subnet, 'out')
+                        ET.SubElement(out_elem, 'ConceptInstanceName').text = instance2.get('Int_Class_ID')
+                        str_join = f"_{out_bits[k]}" if len(out_bits) > 0 else ""
+                        ET.SubElement(out_elem, 'ConceptName').text = f'{out_port.text.strip()}{str_join}'
+
+                        socket_nets.extend(make_net(subnet, instance1))
+    return socket_nets
+                    
+            
+def make_net(net: ET.Element, instance: ET.Element) -> list:
     pass
 
 
@@ -710,7 +782,7 @@ def main():
         strg2 = "apple, banana, pineapple, orange"
         # result = calc_formulas(strg2)
         # print(result)
-        
+        print(str2dec('1758'))
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
