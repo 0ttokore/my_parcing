@@ -771,8 +771,110 @@ def make_socket_nets(net: ET.Element, instance1: ET.Element, instance2: ET.Eleme
                         socket_nets.extend(make_net(subnet, instance1))
     return socket_nets
                     
-            
+           
+#  elaborate one global sideband interconnect
 def make_net(net: ET.Element, instance: ET.Element) -> list:
+    in_name = resolve_names(net.findall('./*[local-name()="in"]'), instance)  # list of broadcast receivers
+    out_name = resolve_names(net.findall('./*[local-name()="out"]'))  # mutex controlled list of drivers
+    result = []
+    for i in range(0, len(in_name), 2):
+        adHocConnection = ET.Element('spirit:adHocConnection')
+        ET.SubElement(adHocConnection, 'spirit:name').text = f"{in_name[i]}_{in_name[i+1]}"
+        ci_out = net.find('./*[local-name()="out"]/*[local-name()="ConceptInstanceName"]/text()')
+        cn_out = net.find('./*[local-name()="out"]/*[local-name()="ConceptName"]/text()')
+        ci_in = net.find('./*[local-name()="in"]/*[local-name()="ConceptInstanceName"]/text()')
+        cn_in = net.find('./*[local-name()="in"]/*[local-name()="ConceptName"]/text()')
+        ET.SubElement(adHocConnection, 'spirit:description').text = f"{ci_out}_{cn_out}__{ci_in}_{cn_in}"
+        ET.SubElement(adHocConnection, 'spirit:internalPortReference', 
+                      {'spirit:componentRef': in_name[i], 'spirit:portRef': in_name[i+1]})
+        for j in range(0, len(out_name), 2):
+            ET.SubElement(adHocConnection, 'spirit:internalPortReference', 
+                          {'spirit:componentRef': out_name[j], 'spirit:portRef': out_name[j+1]})
+        result.append(adHocConnection)
+
+    return result
+
+
+#  elaborate a potentially loop'ed local interconnect definition
+def make_net_instance(template: ET.Element, instance: ET.Element) -> list:
+    context = instance.get('Int_Class_ID')
+    result = []
+    
+    non_hidden_attrs = [attr for attr in template.attrib if attr != 'Hidden']
+    if non_hidden_attrs:
+        dims = enumerate(resolve_parameter(non_hidden_attrs[0], [], context), context)
+        
+        for dim in dims:
+            variant = ET.Element(template.tag)
+            for attr in non_hidden_attrs[1:]:
+                variant.set(attr, template.get(attr))
+            
+            # Process Hidden attributes and child elements
+            for child in template:
+                if child.tag.endswith('Hidden'):
+                    hidden_value = process_hidden(child, dim, non_hidden_attrs[0])
+                    if hidden_value:
+                        variant.append(hidden_value)
+                else:
+                    variant.append(process_child(child, dim, non_hidden_attrs[0]))
+            
+            # Recursive call with variant
+            result.extend(make_net_instance(variant, instance))
+            
+    # Check for Hidden attribute with ${...} pattern
+    elif 'Hidden' in template.attrib and re.match(r'^\$\{(.*?)\}$', template.get('Hidden')):
+        if calc_hidden(template.get('Hidden'), context):
+            return result
+            
+    # Check for Hidden attribute without ${...} pattern
+    elif 'Hidden' in template.attrib and not re.match(r'^\$\{(.*?)\}$', template.get('Hidden')):
+        if calc_hidden(resolve_parameter(template.get('Hidden'), [], context), context):
+            return result
+            
+    else:
+        # Process inputs and outputs
+        input_names = resolve_names(template.findall('./*[local-name()="in"]'), instance)
+        output_names = resolve_names(template.findall('./*[local-name()="out"]'), instance)
+        
+        if input_names and output_names:
+            connection = ET.Element('spirit:adHocConnection')
+            
+            # Create name element
+            name_elem = ET.SubElement(connection, 'spirit:name')
+            name_elem.text = f"{input_names[0]}_{input_names[1]}"
+            
+            # Create description element
+            desc_elem = ET.SubElement(connection, 'spirit:description')
+            desc_elem.text = f"{output_names[0]}_{output_names[1]}__{input_names[0]}_{input_names[1]}"
+            
+            # Add internal port references for inputs
+            for i in range(0, len(input_names), 2):
+                port_ref = ET.SubElement(connection, 'spirit:internalPortReference')
+                port_ref.set('spirit:componentRef', input_names[i])
+                port_ref.set('spirit:portRef', input_names[i + 1])
+            
+            # Add internal port references for outputs
+            for i in range(0, len(output_names), 2):
+                port_ref = ET.SubElement(connection, 'spirit:internalPortReference')
+                port_ref.set('spirit:componentRef', output_names[i])
+                port_ref.set('spirit:portRef', output_names[i + 1])
+            
+            result.append(connection)
+    
+    return result
+
+def process_hidden(element: ET.Element, dim: str, loopvar: str) -> ET.Element:
+    """Helper function to process Hidden elements"""
+    # Implementation depends on your specific needs
+    pass
+
+def process_child(element: ET.Element, dim: str, loopvar: str) -> ET.Element:
+    """Helper function to process child elements"""
+    # Implementation depends on your specific needs
+    pass
+
+
+def resolve_parameter(in_str: str, keep: list, context: list = ['0']) -> str:
     pass
 
 
@@ -783,6 +885,12 @@ def main():
         # result = calc_formulas(strg2)
         # print(result)
         print(str2dec('1758'))
+        
+        inp = ET.Element("in", {"ex" : "Ex"})
+        attrb = inp.attrib
+        out = ET.Element('out')
+        out.set(attrb, inp.get(attrb))
+        print(out)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
