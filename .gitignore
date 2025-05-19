@@ -3,5 +3,3 @@
 *.csv
 venv/
 __pycache__
-raw_creation.py
-mathlib2.xslt
