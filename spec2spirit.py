@@ -802,48 +802,42 @@ def make_net_instance(template: ET.Element, instance: ET.Element) -> list:
     
     non_hidden_attrs = [attr for attr in template.attrib if attr != 'Hidden']
     if non_hidden_attrs:
-        dims = enumerate(resolve_parameter(non_hidden_attrs[0], [], context), context)
+        first_attr = non_hidden_attrs[0]
+        dims = enumerate(resolve_parameter(template.get(first_attr), [], context), context)
         
         for dim in dims:
             variant = ET.Element(template.tag)
+            
             for attr in non_hidden_attrs[1:]:
                 variant.set(attr, template.get(attr))
             
-            # Process Hidden attributes and child elements
-            for child in template:
-                if child.tag.endswith('Hidden'):
-                    hidden_value = process_hidden(child, dim, non_hidden_attrs[0])
-                    if hidden_value:
-                        variant.append(hidden_value)
-                else:
-                    variant.append(process_child(child, dim, non_hidden_attrs[0]))
+            #  TODO: finish this block (828-831 spec2spirit.xslt)
             
-            # Recursive call with variant
             result.extend(make_net_instance(variant, instance))
-            
+        return result
+    
     # Check for Hidden attribute with ${...} pattern
-    elif 'Hidden' in template.attrib and re.match(r'^\$\{(.*?)\}$', template.get('Hidden')):
-        if calc_hidden(template.get('Hidden'), context):
-            return result
-            
+    elif ('Hidden' in template.attrib and re.match(r'^\$\{(.*?)\}$', template.get('Hidden'))
+          and calc_hidden(template.get('Hidden'), context)):
+        return result
+    
     # Check for Hidden attribute without ${...} pattern
     elif 'Hidden' in template.attrib and not re.match(r'^\$\{(.*?)\}$', template.get('Hidden')):
-        if calc_hidden(resolve_parameter(template.get('Hidden'), [], context), context):
+        resolved_hidden = resolve_parameter(template.get('Hidden'), [], context)
+        if calc_hidden(resolved_hidden, context):
             return result
-            
+    
     else:
-        # Process inputs and outputs
+        # mutex controlled list of inputs and outputs
         input_names = resolve_names(template.findall('./*[local-name()="in"]'), instance)
         output_names = resolve_names(template.findall('./*[local-name()="out"]'), instance)
         
         if input_names and output_names:
             connection = ET.Element('spirit:adHocConnection')
             
-            # Create name element
             name_elem = ET.SubElement(connection, 'spirit:name')
             name_elem.text = f"{input_names[0]}_{input_names[1]}"
             
-            # Create description element
             desc_elem = ET.SubElement(connection, 'spirit:description')
             desc_elem.text = f"{output_names[0]}_{output_names[1]}__{input_names[0]}_{input_names[1]}"
             
@@ -863,34 +857,92 @@ def make_net_instance(template: ET.Element, instance: ET.Element) -> list:
     
     return result
 
-def process_hidden(element: ET.Element, dim: str, loopvar: str) -> ET.Element:
-    """Helper function to process Hidden elements"""
-    # Implementation depends on your specific needs
-    pass
 
 def process_child(element: ET.Element, dim: str, loopvar: str) -> ET.Element:
-    """Helper function to process child elements"""
-    # Implementation depends on your specific needs
-    pass
+    """Process child element by replacing loop variable with dimension value"""
+    new_elem = ET.Element(element.tag)
+    new_elem.text = element.text
+    new_elem.tail = element.tail
+    
+    # Process attributes
+    for attr_name, attr_value in element.attrib.items():
+        new_value = attr_value.replace(f'${{{loopvar}}}', str(dim))
+        new_elem.set(attr_name, new_value)
+    
+    # Process child's children recursively
+    for child in element:
+        new_child = process_child(child, dim, loopvar)
+        if new_child is not None:
+            new_elem.append(new_child)
+    
+    return new_elem
 
 
-def resolve_parameter(in_str: str, keep: list, context: list = ['0']) -> str:
-    pass
+def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
+    if '${' not in in_str:
+        return in_str
+        
+    key = in_str.split('${', 1)[1]
+    t1 = key.split('}', 1)[0]
+    t2 = key.split('"', 1)[0] if '"' in key else ''
+    t3 = key.split('${', 1)[0] if '${' in key else ''
+    para = []
+    
+    if key.startswith('"'):
+        t30 = key[1:]
+        t40 = t30.split('"', 1)[0]
+        t50 = t30.split('"', 1)[1] if '"' in t30 else ''
+        if '}' in t50:
+            t60 = t50.split('}', 1)[0]
+            para.append(f'"{t40}"{t60}')
+            if len(t50.split('}', 1)[1]):
+                para.append(resolve_parameter(t50.split('}', 1)[1], keep, context))
+    elif t2 and len(t2) < len(t1):
+        t30 = key.split('"', 1)[1]
+        t40 = t30.split('"', 1)[0]
+        t50 = t30.split('"', 1)[1] if '"' in t30 else ''
+        t60 = t50.split('}', 1)[0] if '}' in t50 else ''
+        para.append(f'"{t40}"{t60}')
+        para.append(f'{t2}"{t40}"{t60}')
+        if len(t50.split('}', 1)[1]):
+            para.append(resolve_parameter(t50.split('}', 1)[1], keep, context))
+    elif not key:
+        para.append('${')
+    elif ('${' in key and len(t3) < len(t1)) or '$' in t1:
+        para.append('${')
+        para.append(resolve_parameter(key, keep, context))
+    else:
+        para.append(t1)
+        if len(key.split('}', 1)[1]):
+            para.append(resolve_parameter(key.split('}', 1)[1], keep, context))
+    
+    if not para[0]:  # left half of nested expression
+        return in_str
+    elif para[0] == keep or '$' in para[0] or '+' in para[0]:
+        return in_str.split('${', 1)[0] + ''.join(para)
+    elif para[0] in ('"{"', '"}"'):
+        return in_str.split('${', 1)[0] + para[0][1] + para[1]
+    else:
+        p = get_parameter(para[0], context).replace('"', '')
+        q = p.replace("'", '')
+        r = q.replace('&amp;', '&')
+        return in_str.split('${', 1)[0] + r + (para[1] if len(para) > 1 else '')
 
 
 def main():
     try:
-        strg = "{{apple}}, {{banana}}, {{pineapple}}, {{orange}}"
-        strg2 = "apple, banana, pineapple, orange"
-        # result = calc_formulas(strg2)
-        # print(result)
-        print(str2dec('1758'))
-        
-        inp = ET.Element("in", {"ex" : "Ex"})
-        attrb = inp.attrib
-        out = ET.Element('out')
-        out.set(attrb, inp.get(attrb))
-        print(out)
+        print("Start of program!")
+
+
+        elem = ET.Element('example', {'attr1':'first', 'attr2':'second', 'attr3':'third'})
+        variant = ET.Element("variant")
+            
+        attribs = list(elem.attrib)
+        print(type(attribs))
+        for attr in attribs[1:]:
+            variant.set(attr, elem.get(attr))
+
+        ET.dump(variant)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
