@@ -4,5 +4,5 @@
 venv/
 __pycache__
 raw_creation.py
-used/
+used/raw_creation.py
 fixes/
