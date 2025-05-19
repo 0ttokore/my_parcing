@@ -3,6 +3,7 @@
 *.csv
 venv/
 __pycache__
+used/
 raw_creation.py
 used/raw_creation.py
 fixes/
