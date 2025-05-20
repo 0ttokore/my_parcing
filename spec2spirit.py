@@ -618,7 +618,7 @@ def calc_formulas(input_str: str) -> str:
     return "".join(parts)
 
 
-def enumerate(range_str: str, context: str) -> list:
+def enumerate_parameter(range_str: str, context: str) -> list:
     result = []
     for token in range_str.split(','):
         toks = token.split(':')
@@ -803,7 +803,7 @@ def make_net_instance(template: ET.Element, instance: ET.Element) -> list:
     non_hidden_attrs = [attr for attr in template.attrib if attr != 'Hidden']
     if non_hidden_attrs:
         first_attr = non_hidden_attrs[0]
-        dims = enumerate(resolve_parameter(template.get(first_attr), [], context), context)
+        dims = enumerate_parameter(resolve_parameter(template.get(first_attr), [], context), context)
         
         for dim in dims:
             variant = ET.Element(template.tag)
@@ -911,19 +911,8 @@ def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
     
 
 # elaborate a potentially loop'ed port mapping definition
+# template - Map element
 def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
-    """
-    Recursive function that processes template elements and generates names based on various conditions.
-    
-    Args:
-        template: XML Element representing the template
-        context: Context string for parameter resolution
-        ci: Concept instance identifier
-        cn: Concept name
-    
-    Returns:
-        List of generated names
-    """
     result = []
     
     # Check if template has attributes other than 'Name' and 'Hidden'
@@ -931,14 +920,11 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
                    if attr not in ['Name', 'Hidden']]
     
     if other_attrs:
-        # Get the first non-Name, non-Hidden attribute
         first_attr = other_attrs[0]
         # Get dimensions by resolving parameter and enumerating
-        dims = enumerate_params(resolve_parameter(template.get(first_attr), [], context), context)
+        dims = enumerate_parameter(resolve_parameter(template.get(first_attr), [], context), context)
         
-        # Process each dimension
         for dim in dims:
-            # Create a variant element
             variant = ET.Element(template.tag)
             # Copy remaining attributes
             for attr in other_attrs[1:]:
@@ -947,18 +933,14 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
             if 'Name' in template.attrib:
                 variant.set('Name', template.get('Name'))
             
-            # Process Hidden attribute and child elements
-            if 'Hidden' in template.attrib:
-                variant.set('Hidden', template.get('Hidden'))
+            #  TODO: template call (609-612 spec2spirit.xslt)
             
-            # Recursively process the variant
             result.extend(looped_name(variant, context, ci, cn))
             
-    # Handle Hidden attribute case
     elif 'Hidden' in template.attrib:
-        hidden_value = template.get('Hidden')
+        hidden_value = template.get('Hidden')  # variable MapHidden
         
-        # Process special cases with #lastletter# and #prelastletter#
+        #  Process special cases with #lastletter# and #prelastletter#
         if '#' in hidden_value:
             last_letter = ord(cn[-1].upper()) - ord('A')
             pre_last_letter = ord(cn[-2].upper()) - ord('A') if len(cn) > 1 else -1
@@ -966,13 +948,14 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
             hidden_value = hidden_value.replace('#lastletter#', str(last_letter))
             hidden_value = hidden_value.replace('#prelastletter#', str(pre_last_letter))
         
-        # Check if Hidden value is a parameter reference or matches port name
+        #  Hidden refers to a single parameter name
+        #  Hidden refers to the port name
         if (re.match(r'^\$\{(.*?)\}$', hidden_value) and calc_hidden(hidden_value, context)) or \
            (not re.match(r'^\$\{(.*?)\}$', hidden_value) and 
             calc_hidden(cn.replace(template.get('Name'), resolve_parameter(hidden_value, [], context)), context)):
-            pass  # Skip this variant
+            pass  # using pass bc no loop
         else:
-            # Create variant without Hidden attribute
+            #  Create variant without Hidden attribute
             variant = ET.Element(template.tag)
             for attr in template.attrib:
                 if attr != 'Hidden':
@@ -993,7 +976,7 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
             text = concept_instance.text
             if '#lastdigit#' in text:
                 last_digit = ci[-1]
-                if last_digit.isdigit():
+                if castable(last_digit, 'integer'):
                     nci = calc_formulas(cn.replace(template.get('Name'), 
                         resolve_parameter(text.replace('#lastdigit#', last_digit), [], context)))
             else:
@@ -1021,6 +1004,86 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
         # Add results if both nci and ncn are valid
         if nci and ncn:
             result.extend([nci, ncn])
+    
+    return result
+
+
+#  elaborate a potentially loop'ed port constraint
+#  template - Map element
+def looped_constraint(template: ET.Element, context: str) -> list:
+    """
+    Recursive function that processes template elements and generates constraints based on various conditions.
+    
+    Args:
+        template: XML Element representing the template
+        context: Context string for parameter resolution
+    
+    Returns:
+        List of generated constraint elements
+    """
+    result = []
+    
+    # Check if template has any attributes
+    if template.attrib:
+        # Get the first attribute's value and resolve it
+        first_attr = list(template.attrib.keys())[0]
+        first_attr_value = template.get(first_attr)
+        
+        # Get dimensions by resolving parameter and enumerating
+        dims = enumerate_parameter(resolve_parameter(first_attr_value, [], context), context)
+        
+        # Process each dimension
+        for dim in dims:
+            # Create a variant element with the same tag name
+            variant = ET.Element(template.tag)
+            
+            # Copy remaining attributes (excluding the first one)
+            for attr in list(template.attrib.keys())[1:]:
+                variant.set(attr, template.get(attr))
+            
+            # Process Hidden attribute and child elements
+            if 'Hidden' in template.attrib:
+                variant.set('Hidden', template.get('Hidden'))
+            
+            # Copy child elements
+            for child in template:
+                # Create a copy of the child element
+                child_copy = ET.Element(child.tag, child.attrib)
+                child_copy.text = child.text
+                child_copy.tail = child.tail
+                
+                # Replace ${attr_name} with the current dimension value
+                if child_copy.text:
+                    child_copy.text = child_copy.text.replace(
+                        f'${{{first_attr}}}', 
+                        str(dim)
+                    )
+                
+                variant.append(child_copy)
+            
+            # Recursively process the variant
+            result.extend(looped_constraint(variant, context))
+            
+    else:
+        # No attributes case - process the template directly
+        # Create a copy of the template
+        template_copy = ET.Element(template.tag, template.attrib)
+        
+        # Process child elements
+        for child in template:
+            # Create a copy of the child element
+            child_copy = ET.Element(child.tag, child.attrib)
+            child_copy.text = child.text
+            child_copy.tail = child.tail
+            
+            # Replace ${inst} with resolved parameter value
+            if child_copy.text:
+                resolved_inst = resolve_parameter('${inst}', [], context)
+                child_copy.text = child_copy.text.replace('${inst}', resolved_inst)
+            
+            template_copy.append(child_copy)
+        
+        result.append(template_copy)
     
     return result
 
