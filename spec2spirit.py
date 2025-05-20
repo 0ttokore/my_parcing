@@ -1011,79 +1011,108 @@ def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
 #  elaborate a potentially loop'ed port constraint
 #  template - Map element
 def looped_constraint(template: ET.Element, context: str) -> list:
-    """
-    Recursive function that processes template elements and generates constraints based on various conditions.
-    
-    Args:
-        template: XML Element representing the template
-        context: Context string for parameter resolution
-    
-    Returns:
-        List of generated constraint elements
-    """
     result = []
     
-    # Check if template has any attributes
     if template.attrib:
-        # Get the first attribute's value and resolve it
+        # Get the first attribute's name and value
         first_attr = list(template.attrib.keys())[0]
         first_attr_value = template.get(first_attr)
         
-        # Get dimensions by resolving parameter and enumerating
         dims = enumerate_parameter(resolve_parameter(first_attr_value, [], context), context)
-        
-        # Process each dimension
         for dim in dims:
-            # Create a variant element with the same tag name
             variant = ET.Element(template.tag)
             
             # Copy remaining attributes (excluding the first one)
             for attr in list(template.attrib.keys())[1:]:
                 variant.set(attr, template.get(attr))
             
-            # Process Hidden attribute and child elements
-            if 'Hidden' in template.attrib:
-                variant.set('Hidden', template.get('Hidden'))
+            #  TODO: template call (799-802 spec2spirit.xslt)
             
-            # Copy child elements
-            for child in template:
-                # Create a copy of the child element
-                child_copy = ET.Element(child.tag, child.attrib)
-                child_copy.text = child.text
-                child_copy.tail = child.tail
-                
-                # Replace ${attr_name} with the current dimension value
-                if child_copy.text:
-                    child_copy.text = child_copy.text.replace(
-                        f'${{{first_attr}}}', 
-                        str(dim)
-                    )
-                
-                variant.append(child_copy)
-            
-            # Recursively process the variant
             result.extend(looped_constraint(variant, context))
             
     else:
-        # No attributes case - process the template directly
-        # Create a copy of the template
-        template_copy = ET.Element(template.tag, template.attrib)
+        #  TODO: template call (809-812 spec2spirit.xslt)
+        pass
+
+    return result
+
+
+def make_resource_instance(template: ET.Element, context: str) -> list:
+    """
+    Creates component instances from template elements, handling parameter resolution and constraints.
+    """
+    result = []
+    
+    # Check for non-Hidden attributes
+    non_hidden_attrs = [attr for attr in template.attrib if attr != 'Hidden']
+    if non_hidden_attrs:
+        # Get first non-Hidden attribute and its dimensions
+        first_attr = non_hidden_attrs[0]
+        dims = enumerate_parameter(resolve_parameter(template.get(first_attr), [], context), context)
         
-        # Process child elements
-        for child in template:
-            # Create a copy of the child element
-            child_copy = ET.Element(child.tag, child.attrib)
-            child_copy.text = child.text
-            child_copy.tail = child.tail
+        # Process each dimension
+        for dim in dims:
+            variant = ET.Element(template.tag)
+            # Copy remaining non-Hidden attributes
+            for attr in non_hidden_attrs[1:]:
+                variant.set(attr, template.get(attr))
             
-            # Replace ${inst} with resolved parameter value
-            if child_copy.text:
-                resolved_inst = resolve_parameter('${inst}', [], context)
-                child_copy.text = child_copy.text.replace('${inst}', resolved_inst)
+            # Copy Hidden attribute and child elements
+            if 'Hidden' in template.attrib:
+                variant.set('Hidden', template.get('Hidden'))
+            for child in template:
+                variant.append(child)
             
-            template_copy.append(child_copy)
+            result.extend(make_resource_instance(variant, context))
+            
+    # Handle Hidden attribute cases
+    elif 'Hidden' in template.attrib:
+        hidden_value = template.get('Hidden')
+        # Skip if Hidden is a parameter reference and evaluates to true
+        if (re.match(r'^\$\{(.*?)\}$', hidden_value) and calc_hidden(hidden_value, context)) or \
+           (not re.match(r'^\$\{(.*?)\}$', hidden_value) and 
+            calc_hidden(resolve_parameter(hidden_value, [], context), context)):
+            return result
+            
+    # Create component instance
+    else:
+        instance = ET.Element('spirit:componentInstance')
         
-        result.append(template_copy)
+        # Set instance name
+        name_elem = ET.SubElement(instance, 'spirit:instanceName')
+        concept_name = template.find('ConceptInstanceName')
+        if concept_name is not None and concept_name.text:
+            name_elem.text = calc_formulas(resolve_parameter(concept_name.text, [], context))
+        
+        # Set component reference
+        vlnv = template.find('VLNV')
+        if vlnv is not None and vlnv.text:
+            vendor, library, name, version = vlnv.text.split(':')
+            comp_ref = ET.SubElement(instance, 'spirit:componentRef')
+            comp_ref.set('spirit:vendor', vendor)
+            comp_ref.set('spirit:library', library)
+            comp_ref.set('spirit:name', name)
+            comp_ref.set('spirit:version', version)
+        
+        # Handle parameter declarations
+        param_decls = template.findall('ParamDecl')
+        if param_decls:
+            config_values = ET.SubElement(instance, 'spirit:configurableElementValues')
+            for param in param_decls:
+                value_elem = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                value_elem.set('spirit:referenceId', param.get('Name'))
+                value = param.find('Value')
+                if value is not None and value.text:
+                    value_elem.text = calc_formulas(resolve_parameter(value.text, [], context))
+        
+        # Handle constraints
+        constraints = template.findall('Constraint')
+        if constraints:
+            vendor_ext = ET.SubElement(instance, 'spirit:vendorExtensions')
+            for constraint in constraints:
+                vendor_ext.extend(looped_constraint(constraint, context))
+        
+        result.append(instance)
     
     return result
 
