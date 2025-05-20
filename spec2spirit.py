@@ -3,6 +3,7 @@ import logging
 import re
 from mathlib2 import decimal_to_hex, decimal_to_bin, power, str2base, num_essence, parse_essence
 import math
+from datetime import datetime, timezone, timedelta
 
 
 logging.basicConfig(level=logging.INFO)
@@ -1109,10 +1110,6 @@ def make_resource_instance(template: ET.Element, context: str) -> list:
 
 #  Generate a complete XMP-wrapped set of metadata using the Dublin Core semanics
 def template_MetaData(device: str, family: str, created: str, outputfile: str, silicon_name: str, label: str) -> ET.Element:
-    """
-    Creates XML metadata in Dublin Core format for device connectivity definitions.
-    Matches the XSLT template 'MetaData' functionality.
-    """
     # Define namespace mappings
     namespaces = {
         'x': 'adobe:ns:meta/',
@@ -1148,39 +1145,41 @@ def template_MetaData(device: str, family: str, created: str, outputfile: str, s
         return elem
     
     # Title
-    title = create_element(desc, 'dc:title')
-    title_alt = create_element(title, 'rdf:Alt')
-    title_li = create_element(title_alt, 'rdf:li', f"{device} On-chip Connectivity Definitions", 'en')
+    dc_title = create_element(desc, 'dc:title')
+    rdf_Alt = create_element(dc_title, 'rdf:Alt')
+    create_element(rdf_Alt, 'rdf:li', f"{device} On-chip Connectivity Definitions", 'en')
     
     # Creator
-    creator = create_element(desc, 'dc:creator')
-    creator_seq = create_element(creator, 'rdf:Seq')
-    create_element(creator_seq, 'rdf:li', "CTDD@infineon.com")
+    dc_creator = create_element(desc, 'dc:creator')
+    rdf_Seq = create_element(dc_creator, 'rdf:Seq')
+    create_element(rdf_Seq, 'rdf:li', "CTDD@infineon.com")
     
     # Subject
-    subject = create_element(desc, 'dc:subject')
-    subject_bag = create_element(subject, 'rdf:Bag')
-    for subj in [device, family, "Resource modelling", "Resource mapping", "SPIRIT"]:
-        create_element(subject_bag, 'rdf:li', subj)
+    dc_subject = create_element(desc, 'dc:subject')
+    rdf_Bag = create_element(dc_subject, 'rdf:Bag')
+    for text in [device, family, "Resource modelling", "Resource mapping", "SPIRIT"]:
+        create_element(rdf_Bag, 'rdf:li', text)
     
     # Description
-    description = create_element(desc, 'dc:description')
-    desc_alt = create_element(description, 'rdf:Alt')
-    create_element(desc_alt, 'rdf:li', 
+    dc_description = create_element(desc, 'dc:description')
+    rdf_Alt = create_element(dc_description, 'rdf:Alt')
+    create_element(rdf_Alt, 'rdf:li', 
                   "SPIRIT (IEEE Std 1685-2009) compliant definition of connectivity.", 'en')
     
     # Publisher
     create_element(desc, 'dc:publisher', "http://www.infineon.com")
     
     # Contributor
-    contributor = create_element(desc, 'dc:contributor')
-    contrib_seq = create_element(contributor, 'rdf:Seq')
-    create_element(contrib_seq, 'rdf:li', "IFX ATV MC ACE")
+    dc_contributor = create_element(desc, 'dc:contributor')
+    rdf_Seq = create_element(dc_contributor, 'rdf:Seq')
+    create_element(rdf_Seq, 'rdf:li', "IFX ATV MC ACE")
     
     # Date
+    # don't use  xsi:type="dcterms:W3CDTF"
     create_element(desc, 'dc:date', created)
     
     # Type
+    # don't use  xsi:type="dcterms:DCMIType"
     create_element(desc, 'dc:type', "Dataset")
     
     # Format
@@ -1193,19 +1192,19 @@ def template_MetaData(device: str, family: str, created: str, outputfile: str, s
     create_element(desc, 'dc:source', f"{silicon_name}.spinner@@{label}")
     
     # Language
-    language = create_element(desc, 'dc:language')
-    lang_bag = create_element(language, 'rdf:Bag')
-    create_element(lang_bag, 'rdf:li', "en")
+    dc_language = create_element(desc, 'dc:language')
+    rdf_Bag = create_element(dc_language, 'rdf:Bag')
+    create_element(rdf_Bag, 'rdf:li', "en")
     
     # Relation
-    relation = create_element(desc, 'dc:relation')
-    rel_bag = create_element(relation, 'rdf:Bag')
-    create_element(rel_bag, 'rdf:li', f"{device} Data Sheet")
+    dc_relation = create_element(desc, 'dc:relation')
+    rdf_Bag = create_element(dc_relation, 'rdf:Bag')
+    create_element(rdf_Bag, 'rdf:li', f"{device} Data Sheet")
     
-    # Coverage (Legal Disclaimer)
-    coverage = create_element(desc, 'dc:coverage')
-    cov_alt = create_element(coverage, 'rdf:Alt')
-    create_element(cov_alt, 'rdf:li', 
+    # Coverage
+    dc_coverage = create_element(desc, 'dc:coverage')
+    rdf_Alt = create_element(dc_coverage, 'rdf:Alt')
+    create_element(rdf_Alt, 'rdf:li', 
                   """Legal Disclaimer: 
 The information given in this document shall in no event be regarded as a guarantee of conditions or
 characteristics. With respect to any examples or hints given herein, any typical values stated herein and/or any
@@ -1214,9 +1213,9 @@ and liabilities of any kind, including without limitation, warranties of non-inf
 of any third party.""", 'en')
     
     # Rights
-    rights = create_element(desc, 'dc:rights')
-    rights_alt = create_element(rights, 'rdf:Alt')
-    create_element(rights_alt, 'rdf:li', 
+    dc_rights = create_element(desc, 'dc:rights')
+    rdf_Alt = create_element(dc_rights, 'rdf:Alt')
+    create_element(rdf_Alt, 'rdf:li', 
                   "Copyright 2013 Infineon Technologies AG. All Rights Reserved", 'en')
     
     # Add end processing instruction
@@ -1225,21 +1224,110 @@ of any third party.""", 'en')
     return root
 
 
+def format_dateTime(dt: datetime, format_str: str) -> str:
+    """
+    Format datetime according to XSLT-like format string.
+    Matches XSLT format-dateTime functionality.
+    """
+    # Convert XSLT format to Python strftime format
+    format_map = {
+        '[Y0001]': '%Y',  # Year with century
+        '[M01]': '%m',    # Month with leading zero
+        '[D01]': '%d',    # Day with leading zero
+        '[H01]': '%H',    # Hour (24h) with leading zero
+        '[m01]': '%M',    # Minute with leading zero
+        '[s01]': '%S',    # Second with leading zero
+        'Z': 'Z'          # UTC timezone indicator
+    }
+    
+    python_format = format_str
+    for xslt, py in format_map.items():
+        python_format = python_format.replace(xslt, py)
+    
+    return dt.strftime(python_format)
+
+
+def adjust_dateTime_to_timezone(dt: datetime, duration: timedelta) -> datetime:
+    """
+    Adjust datetime to specified timezone.
+    Matches XSLT adjust-dateTime-to-timezone functionality.
+    """
+    # For PT0H (UTC), we just return the datetime as is
+    return dt
+
+
+def current_dateTime() -> datetime:
+    """
+    Get current datetime in UTC.
+    Matches XSLT current-dateTime functionality.
+    """
+    return datetime.now(timezone.utc)
+
+
+def dayTimeDuration(duration_str: str) -> timedelta:
+    """
+    Convert XSLT duration string to Python timedelta.
+    Matches XSLT xs:dayTimeDuration functionality.
+    """
+    # Parse PT0H format (Period Time 0 Hours)
+    if duration_str.startswith('PT'):
+        hours = int(duration_str[2:-1])
+        return timedelta(hours=hours)
+    return timedelta(0)
+
+
+def get_silicon_name(root: ET.Element) -> str:
+    """
+    Get silicon name from XML structure.
+    Matches XSLT path: //spinner5PBuilder/properties/property[@name='chip_top_name']
+    """
+    try:
+        return root.find('.//spinner5PBuilder/properties/property[@name="chip_top_name"]').text
+    except (AttributeError, TypeError):
+        return ""
+
+
+def get_outputfile(device: str) -> str:
+    """
+    Generate output filename.
+    Matches XSLT concat($Device,'_Design_Spirit_raw.xml')
+    """
+    return f"{device}_Design_Spirit_raw.xml"
+
+
 def main():
     try:
-        print("Start of program!")
-
-
-        elem = ET.Element('example', {'attr1':'first', 'attr2':'second', 'attr3':'third'})
-        variant = ET.Element("variant")
-            
-        attribs = list(elem.attrib)
-        print(type(attribs))
-        for attr in attribs[1:]:
-            variant.set(attr, elem.get(attr))
-
-        ET.dump(variant)
+        # Get current datetime in UTC and format it
+        created = format_dateTime(
+            adjust_dateTime_to_timezone(
+                current_dateTime(),
+                dayTimeDuration('PT0H')
+            ),
+            '[Y0001]-[M01]-[D01]T[H01]:[m01]:[s01]Z'
+        )
         
+        # Parse input XML to get silicon name
+        tree = ET.parse('input.xml')  # You'll need to specify the correct input file
+        root = tree.getroot()
+        silicon_name = get_silicon_name(root)
+        
+        # Get device name from somewhere (you'll need to specify how to get this)
+        device = "DEVICE_NAME"  # Replace with actual device name source
+        outputfile = get_outputfile(device)
+        
+        # Create metadata
+        metadata = template_MetaData(
+            device=device,
+            family="FAMILY_NAME",  # Replace with actual family name
+            created=created,
+            outputfile=outputfile,
+            silicon_name=silicon_name,
+            label="LABEL"  # Replace with actual label
+        )
+        
+        # Write output
+        tree = ET.ElementTree(metadata)
+        tree.write(outputfile, encoding='utf-8', xml_declaration=True)
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
