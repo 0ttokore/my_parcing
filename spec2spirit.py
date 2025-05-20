@@ -3,12 +3,34 @@ import logging
 import re
 from mathlib2 import decimal_to_hex, decimal_to_bin, power, str2base, num_essence, parse_essence
 import math
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+import sys
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def get_silicon_name(input_file: str) -> str:
+    try:
+        root = ET.parse(input_file).getroot()
+        return root.find('.//spinner5PBuilder/properties/property[@name="chip_top_name"]').text
+    except (AttributeError, TypeError) as e:
+        logger.error(f"Error getting silicon name: {e}")
+        return ""
+    
+
+# Global variables
+created = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+input_file = "input.xml"  # TODO: specify input file to template
+silicon_name = get_silicon_name(input_file)
+outputfile = "TC39x_Design_Spirit_raw.xml"  # TODO: check if we use TC39x or TC49x
+
+toolversion = "2.1"
+family = 'AURIXTC3XX'
+device = 'TC39x'
+silicon_step = 'A'
+label = 1
 
 # the solver function for () + - * / mod div ^
 def evaluate(input_str: str, context: str = "0") -> str:
@@ -1109,7 +1131,7 @@ def make_resource_instance(template: ET.Element, context: str) -> list:
 
 
 #  Generate a complete XMP-wrapped set of metadata using the Dublin Core semanics
-def template_MetaData(device: str, family: str, created: str, outputfile: str, silicon_name: str, label: str) -> ET.Element:
+def template_MetaData() -> ET.Element:
     # Define namespace mappings
     namespaces = {
         'x': 'adobe:ns:meta/',
@@ -1224,111 +1246,119 @@ of any third party.""", 'en')
     return root
 
 
-def format_dateTime(dt: datetime, format_str: str) -> str:
-    """
-    Format datetime according to XSLT-like format string.
-    Matches XSLT format-dateTime functionality.
-    """
-    # Convert XSLT format to Python strftime format
-    format_map = {
-        '[Y0001]': '%Y',  # Year with century
-        '[M01]': '%m',    # Month with leading zero
-        '[D01]': '%d',    # Day with leading zero
-        '[H01]': '%H',    # Hour (24h) with leading zero
-        '[m01]': '%M',    # Minute with leading zero
-        '[s01]': '%S',    # Second with leading zero
-        'Z': 'Z'          # UTC timezone indicator
-    }
+def template_spinner5PBuilder() -> ET.Element:
+    root = ET.Element('spirit:design')
     
-    python_format = format_str
-    for xslt, py in format_map.items():
-        python_format = python_format.replace(xslt, py)
+    # Add schema location
+    root.set('{http://www.w3.org/2001/XMLSchema-instance}schemaLocation',
+             'http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009 http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009/design.xsd')
     
-    return dt.strftime(python_format)
+    # Document Header and Comments
+    comments = [
+        "====",
+        "© Copyright Infineon Technologies AG 2016. All rights reserved.",
+        "DO NOT EDIT! This is generated code and will be replaced without notice.",
+        "====",
+        f"Version of used Python: {sys.version}", # xsl:vendor and xsl:vendor-url skipped, bc python is not a xslt processor
+        f"Version of used Spec2Spirit V{toolversion}"
+    ]
+    
+    # Insert comments at the beginning of the document
+    for comment in comments:
+        root.insert(0, ET.Comment(comment))
+    
+    # Root Element and Schema Definition
+    ET.SubElement(root, 'spirit:vendor').text = 'IFX'
+    ET.SubElement(root, 'spirit:library').text = family
+    ET.SubElement(root, 'spirit:name').text = device
+    ET.SubElement(root, 'spirit:version').text = silicon_step
 
-
-def adjust_dateTime_to_timezone(dt: datetime, duration: timedelta) -> datetime:
-    """
-    Adjust datetime to specified timezone.
-    Matches XSLT adjust-dateTime-to-timezone functionality.
-    """
-    # For PT0H (UTC), we just return the datetime as is
-    return dt
-
-
-def current_dateTime() -> datetime:
-    """
-    Get current datetime in UTC.
-    Matches XSLT current-dateTime functionality.
-    """
-    return datetime.now(timezone.utc)
-
-
-def dayTimeDuration(duration_str: str) -> timedelta:
-    """
-    Convert XSLT duration string to Python timedelta.
-    Matches XSLT xs:dayTimeDuration functionality.
-    """
-    # Parse PT0H format (Period Time 0 Hours)
-    if duration_str.startswith('PT'):
-        hours = int(duration_str[2:-1])
-        return timedelta(hours=hours)
-    return timedelta(0)
-
-
-def get_silicon_name(root: ET.Element) -> str:
-    """
-    Get silicon name from XML structure.
-    Matches XSLT path: //spinner5PBuilder/properties/property[@name='chip_top_name']
-    """
+    # Component Instances
+    component_instances = ET.SubElement(root, 'spirit:componentInstances')
+    ET.SubElement(component_instances, ET.Comment('============== PIN and DEDICATED components =============='))
+    
+    # Parse input XML to get PINS
     try:
-        return root.find('.//spinner5PBuilder/properties/property[@name="chip_top_name"]').text
-    except (AttributeError, TypeError):
-        return ""
-
-
-def get_outputfile(device: str) -> str:
-    """
-    Generate output filename.
-    Matches XSLT concat($Device,'_Design_Spirit_raw.xml')
-    """
-    return f"{device}_Design_Spirit_raw.xml"
+        input_root = ET.parse(input_file).getroot()
+        pins = input_root.findall('.//spinner5PBuilder/ioPad')
+        
+        for i, pin in enumerate(pins, 1):
+            pin_name = pin.get('name')
+            if not pin_name:
+                continue
+                
+            # Check if pin name matches pattern (non-digit followed by two numbers separated by underscore)
+            if re.match(r'^\D(\d+)_(\d+)$', pin_name):
+                instance = ET.SubElement(component_instances, 'spirit:componentInstance')
+                
+                # Set instance name
+                ET.SubElement(instance, 'spirit:instanceName').text = f'PIN_{i}'
+                
+                # Set component reference
+                comp_ref = ET.SubElement(instance, 'spirit:componentRef')
+                comp_ref.set('spirit:vendor', 'IFX')
+                comp_ref.set('spirit:library', 'Platform')
+                comp_ref.set('spirit:name', 'PIN')
+                comp_ref.set('spirit:version', '100')
+                
+                # Set configurable element values
+                config_values = ET.SubElement(instance, 'spirit:configurableElementValues')
+                
+                # Add instance number
+                value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                value.set('spirit:referenceId', 'inst')
+                value.text = str(i)
+                
+                # Add pin name
+                value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                value.set('spirit:referenceId', 'name')
+                value.text = pin_name
+                
+                # Add display name
+                value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                value.set('spirit:referenceId', 'displayName')
+                diagram_label = pin.find('.//properties/Diagram_Label')
+                value.text = diagram_label.text.strip() if diagram_label is not None else pin_name.replace('_', '.')
+                
+                # Extract port and bit numbers
+                match = re.match(r'^\D(\d+)_(\d+)$', pin_name)
+                if match:
+                    port_num, bit_num = match.groups()
+                    
+                    # Add port number
+                    value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                    value.set('spirit:referenceId', 'port')
+                    value.text = str(str2dec(port_num))
+                    
+                    # Add bit number
+                    value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                    value.set('spirit:referenceId', 'bit')
+                    value.text = str(str2dec(bit_num))
+                
+                # Add analog reference if present
+                if diagram_label is not None and re.search(r' AN\d', diagram_label.text):
+                    value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                    value.set('spirit:referenceId', '_ANARES')
+                    value.text = re.sub(r'^.* (AN\d+).*$', r'\1', diagram_label.text)
+                
+                # Add mutex group if present
+                for mutex in input_root.findall(f'.//*[local-name()="Mutex" and translate(@ref,".","_")="{pin_name}"]'):
+                    value = ET.SubElement(config_values, 'spirit:configurableElementValue')
+                    value.set('spirit:referenceId', '_group')
+                    value.text = mutex.text
+                    
+    except Exception as e:
+        logger.error(f"Error processing component instances: {e}")
+        raise
+    
+    return root
 
 
 def main():
     try:
-        # Get current datetime in UTC and format it
-        created = format_dateTime(
-            adjust_dateTime_to_timezone(
-                current_dateTime(),
-                dayTimeDuration('PT0H')
-            ),
-            '[Y0001]-[M01]-[D01]T[H01]:[m01]:[s01]Z'
-        )
-        
-        # Parse input XML to get silicon name
-        tree = ET.parse('input.xml')  # You'll need to specify the correct input file
-        root = tree.getroot()
-        silicon_name = get_silicon_name(root)
-        
-        # Get device name from somewhere (you'll need to specify how to get this)
-        device = "DEVICE_NAME"  # Replace with actual device name source
-        outputfile = get_outputfile(device)
-        
-        # Create metadata
-        metadata = template_MetaData(
-            device=device,
-            family="FAMILY_NAME",  # Replace with actual family name
-            created=created,
-            outputfile=outputfile,
-            silicon_name=silicon_name,
-            label="LABEL"  # Replace with actual label
-        )
-        
-        # Write output
-        tree = ET.ElementTree(metadata)
-        tree.write(outputfile, encoding='utf-8', xml_declaration=True)
+        print("Hello, World!")
 
+        
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
         raise
