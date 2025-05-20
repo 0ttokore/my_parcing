@@ -1037,31 +1037,23 @@ def looped_constraint(template: ET.Element, context: str) -> list:
     return result
 
 
+#  elaborate a potentially loop'ed resource instance definition
 def make_resource_instance(template: ET.Element, context: str) -> list:
-    """
-    Creates component instances from template elements, handling parameter resolution and constraints.
-    """
     result = []
     
     # Check for non-Hidden attributes
     non_hidden_attrs = [attr for attr in template.attrib if attr != 'Hidden']
     if non_hidden_attrs:
-        # Get first non-Hidden attribute and its dimensions
         first_attr = non_hidden_attrs[0]
         dims = enumerate_parameter(resolve_parameter(template.get(first_attr), [], context), context)
         
-        # Process each dimension
         for dim in dims:
             variant = ET.Element(template.tag)
             # Copy remaining non-Hidden attributes
             for attr in non_hidden_attrs[1:]:
                 variant.set(attr, template.get(attr))
             
-            # Copy Hidden attribute and child elements
-            if 'Hidden' in template.attrib:
-                variant.set('Hidden', template.get('Hidden'))
-            for child in template:
-                variant.append(child)
+            #  TODO: template call (750-753 spec2spirit.xslt)
             
             result.extend(make_resource_instance(variant, context))
             
@@ -1080,21 +1072,20 @@ def make_resource_instance(template: ET.Element, context: str) -> list:
         
         # Set instance name
         name_elem = ET.SubElement(instance, 'spirit:instanceName')
-        concept_name = template.find('ConceptInstanceName')
-        if concept_name is not None and concept_name.text:
-            name_elem.text = calc_formulas(resolve_parameter(concept_name.text, [], context))
+        cin = template.find('ConceptInstanceName')
+        if cin is not None and cin.text:
+            name_elem.text = calc_formulas(resolve_parameter(cin.text, [], context))
         
         # Set component reference
-        vlnv = template.find('VLNV')
-        if vlnv is not None and vlnv.text:
-            vendor, library, name, version = vlnv.text.split(':')
+        VLNV = template.find('VLNV')
+        if VLNV is not None and VLNV.text:
+            vendor, library, name, version = VLNV.text.split(':')
             comp_ref = ET.SubElement(instance, 'spirit:componentRef')
             comp_ref.set('spirit:vendor', vendor)
             comp_ref.set('spirit:library', library)
             comp_ref.set('spirit:name', name)
             comp_ref.set('spirit:version', version)
         
-        # Handle parameter declarations
         param_decls = template.findall('ParamDecl')
         if param_decls:
             config_values = ET.SubElement(instance, 'spirit:configurableElementValues')
@@ -1105,7 +1096,6 @@ def make_resource_instance(template: ET.Element, context: str) -> list:
                 if value is not None and value.text:
                     value_elem.text = calc_formulas(resolve_parameter(value.text, [], context))
         
-        # Handle constraints
         constraints = template.findall('Constraint')
         if constraints:
             vendor_ext = ET.SubElement(instance, 'spirit:vendorExtensions')
@@ -1115,6 +1105,124 @@ def make_resource_instance(template: ET.Element, context: str) -> list:
         result.append(instance)
     
     return result
+
+
+#  Generate a complete XMP-wrapped set of metadata using the Dublin Core semanics
+def template_MetaData(device: str, family: str, created: str, outputfile: str, silicon_name: str, label: str) -> ET.Element:
+    """
+    Creates XML metadata in Dublin Core format for device connectivity definitions.
+    Matches the XSLT template 'MetaData' functionality.
+    """
+    # Define namespace mappings
+    namespaces = {
+        'x': 'adobe:ns:meta/',
+        'rdf': 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+        'dc': 'http://purl.org/dc/elements/1.1/',
+        'xml': 'http://www.w3.org/XML/1998/namespace'
+    }
+    
+    # Register namespaces for proper serialization
+    for prefix, uri in namespaces.items():
+        ET.register_namespace(prefix, uri)
+    
+    # Create root element with processing instructions
+    root = ET.Element('{adobe:ns:meta/}xmpmeta')
+    root.insert(0, ET.ProcessingInstruction('xpacket', 'begin="" id="W5M0MpCehiHzreSzNTczkc9d"'))
+    
+    # Create RDF element with namespaces
+    rdf = ET.SubElement(root, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}RDF')
+    rdf.set('xmlns:rdf', namespaces['rdf'])
+    rdf.set('xmlns:dc', namespaces['dc'])
+    
+    # Create Description element
+    desc = ET.SubElement(rdf, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Description')
+    desc.set('{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about', '')
+    
+    # Helper function to create elements with proper namespaces
+    def create_element(parent, tag, text=None, lang=None):
+        elem = ET.SubElement(parent, f'{{{namespaces[tag.split(":")[0]]}}}{tag.split(":")[1]}')
+        if text:
+            elem.text = text
+        if lang:
+            elem.set(f'{{{namespaces["xml"]}}}lang', lang)
+        return elem
+    
+    # Title
+    title = create_element(desc, 'dc:title')
+    title_alt = create_element(title, 'rdf:Alt')
+    title_li = create_element(title_alt, 'rdf:li', f"{device} On-chip Connectivity Definitions", 'en')
+    
+    # Creator
+    creator = create_element(desc, 'dc:creator')
+    creator_seq = create_element(creator, 'rdf:Seq')
+    create_element(creator_seq, 'rdf:li', "CTDD@infineon.com")
+    
+    # Subject
+    subject = create_element(desc, 'dc:subject')
+    subject_bag = create_element(subject, 'rdf:Bag')
+    for subj in [device, family, "Resource modelling", "Resource mapping", "SPIRIT"]:
+        create_element(subject_bag, 'rdf:li', subj)
+    
+    # Description
+    description = create_element(desc, 'dc:description')
+    desc_alt = create_element(description, 'rdf:Alt')
+    create_element(desc_alt, 'rdf:li', 
+                  "SPIRIT (IEEE Std 1685-2009) compliant definition of connectivity.", 'en')
+    
+    # Publisher
+    create_element(desc, 'dc:publisher', "http://www.infineon.com")
+    
+    # Contributor
+    contributor = create_element(desc, 'dc:contributor')
+    contrib_seq = create_element(contributor, 'rdf:Seq')
+    create_element(contrib_seq, 'rdf:li', "IFX ATV MC ACE")
+    
+    # Date
+    create_element(desc, 'dc:date', created)
+    
+    # Type
+    create_element(desc, 'dc:type', "Dataset")
+    
+    # Format
+    create_element(desc, 'dc:format', "application/xml")
+    
+    # Identifier
+    create_element(desc, 'dc:identifier', outputfile.replace('_raw', ''))
+    
+    # Source
+    create_element(desc, 'dc:source', f"{silicon_name}.spinner@@{label}")
+    
+    # Language
+    language = create_element(desc, 'dc:language')
+    lang_bag = create_element(language, 'rdf:Bag')
+    create_element(lang_bag, 'rdf:li', "en")
+    
+    # Relation
+    relation = create_element(desc, 'dc:relation')
+    rel_bag = create_element(relation, 'rdf:Bag')
+    create_element(rel_bag, 'rdf:li', f"{device} Data Sheet")
+    
+    # Coverage (Legal Disclaimer)
+    coverage = create_element(desc, 'dc:coverage')
+    cov_alt = create_element(coverage, 'rdf:Alt')
+    create_element(cov_alt, 'rdf:li', 
+                  """Legal Disclaimer: 
+The information given in this document shall in no event be regarded as a guarantee of conditions or
+characteristics. With respect to any examples or hints given herein, any typical values stated herein and/or any
+information regarding the application of the device, Infineon Technologies hereby disclaims any and all warranties
+and liabilities of any kind, including without limitation, warranties of non-infringement of intellectual property rights
+of any third party.""", 'en')
+    
+    # Rights
+    rights = create_element(desc, 'dc:rights')
+    rights_alt = create_element(rights, 'rdf:Alt')
+    create_element(rights_alt, 'rdf:li', 
+                  "Copyright 2013 Infineon Technologies AG. All Rights Reserved", 'en')
+    
+    # Add end processing instruction
+    root.append(ET.ProcessingInstruction('xpacket', 'end="w"'))
+    
+    return root
 
 
 def main():
