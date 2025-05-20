@@ -858,26 +858,6 @@ def make_net_instance(template: ET.Element, instance: ET.Element) -> list:
     return result
 
 
-def process_child(element: ET.Element, dim: str, loopvar: str) -> ET.Element:
-    """Process child element by replacing loop variable with dimension value"""
-    new_elem = ET.Element(element.tag)
-    new_elem.text = element.text
-    new_elem.tail = element.tail
-    
-    # Process attributes
-    for attr_name, attr_value in element.attrib.items():
-        new_value = attr_value.replace(f'${{{loopvar}}}', str(dim))
-        new_elem.set(attr_name, new_value)
-    
-    # Process child's children recursively
-    for child in element:
-        new_child = process_child(child, dim, loopvar)
-        if new_child is not None:
-            new_elem.append(new_child)
-    
-    return new_elem
-
-
 def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
     if '${' not in in_str:
         return in_str
@@ -887,7 +867,7 @@ def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
     t2 = key.split('"', 1)[0] if '"' in key else ''
     t3 = key.split('${', 1)[0] if '${' in key else ''
     para = []
-    
+    #  creating variable 'para'
     if key.startswith('"'):
         t30 = key[1:]
         t40 = t30.split('"', 1)[0]
@@ -916,6 +896,7 @@ def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
         if len(key.split('}', 1)[1]):
             para.append(resolve_parameter(key.split('}', 1)[1], keep, context))
     
+    #  choosing result parameters
     if not para[0]:  # left half of nested expression
         return in_str
     elif para[0] == keep or '$' in para[0] or '+' in para[0]:
@@ -927,6 +908,121 @@ def resolve_parameter(in_str: str, keep: list, context: str = '0') -> str:
         q = p.replace("'", '')
         r = q.replace('&amp;', '&')
         return in_str.split('${', 1)[0] + r + (para[1] if len(para) > 1 else '')
+    
+
+# elaborate a potentially loop'ed port mapping definition
+def looped_name(template: ET.Element, context: str, ci: str, cn: str) -> list:
+    """
+    Recursive function that processes template elements and generates names based on various conditions.
+    
+    Args:
+        template: XML Element representing the template
+        context: Context string for parameter resolution
+        ci: Concept instance identifier
+        cn: Concept name
+    
+    Returns:
+        List of generated names
+    """
+    result = []
+    
+    # Check if template has attributes other than 'Name' and 'Hidden'
+    other_attrs = [attr for attr in template.attrib.keys() 
+                   if attr not in ['Name', 'Hidden']]
+    
+    if other_attrs:
+        # Get the first non-Name, non-Hidden attribute
+        first_attr = other_attrs[0]
+        # Get dimensions by resolving parameter and enumerating
+        dims = enumerate_params(resolve_parameter(template.get(first_attr), [], context), context)
+        
+        # Process each dimension
+        for dim in dims:
+            # Create a variant element
+            variant = ET.Element(template.tag)
+            # Copy remaining attributes
+            for attr in other_attrs[1:]:
+                variant.set(attr, template.get(attr))
+            # Copy Name attribute if exists
+            if 'Name' in template.attrib:
+                variant.set('Name', template.get('Name'))
+            
+            # Process Hidden attribute and child elements
+            if 'Hidden' in template.attrib:
+                variant.set('Hidden', template.get('Hidden'))
+            
+            # Recursively process the variant
+            result.extend(looped_name(variant, context, ci, cn))
+            
+    # Handle Hidden attribute case
+    elif 'Hidden' in template.attrib:
+        hidden_value = template.get('Hidden')
+        
+        # Process special cases with #lastletter# and #prelastletter#
+        if '#' in hidden_value:
+            last_letter = ord(cn[-1].upper()) - ord('A')
+            pre_last_letter = ord(cn[-2].upper()) - ord('A') if len(cn) > 1 else -1
+            
+            hidden_value = hidden_value.replace('#lastletter#', str(last_letter))
+            hidden_value = hidden_value.replace('#prelastletter#', str(pre_last_letter))
+        
+        # Check if Hidden value is a parameter reference or matches port name
+        if (re.match(r'^\$\{(.*?)\}$', hidden_value) and calc_hidden(hidden_value, context)) or \
+           (not re.match(r'^\$\{(.*?)\}$', hidden_value) and 
+            calc_hidden(cn.replace(template.get('Name'), resolve_parameter(hidden_value, [], context)), context)):
+            pass  # Skip this variant
+        else:
+            # Create variant without Hidden attribute
+            variant = ET.Element(template.tag)
+            for attr in template.attrib:
+                if attr != 'Hidden':
+                    variant.set(attr, template.get(attr))
+            for child in template:
+                variant.append(child)
+            
+            result.extend(looped_name(variant, context, ci, cn))
+            
+    # Handle ConceptInstanceName and ConceptName cases
+    else:
+        nci = None
+        ncn = None
+        
+        # Process ConceptInstanceName
+        concept_instance = template.find('ConceptInstanceName')
+        if concept_instance is not None:
+            text = concept_instance.text
+            if '#lastdigit#' in text:
+                last_digit = ci[-1]
+                if last_digit.isdigit():
+                    nci = calc_formulas(cn.replace(template.get('Name'), 
+                        resolve_parameter(text.replace('#lastdigit#', last_digit), [], context)))
+            else:
+                nci = calc_formulas(cn.replace(template.get('Name'), 
+                    resolve_parameter(text, [], context)))
+        
+        # Process ConceptName
+        concept_name = template.find('ConceptName')
+        if concept_name is not None:
+            text = concept_name.text
+            if '#lastletter#' in text:
+                last_letter = ord(cn[-1].upper()) - ord('A')
+                if last_letter >= 0:
+                    ncn = calc_formulas(cn.replace(template.get('Name'), 
+                        resolve_parameter(text.replace('#lastletter#', str(last_letter)), [], context)))
+            elif '#prelastletter#' in text:
+                pre_last_letter = ord(cn[-2].upper()) - ord('A') if len(cn) > 1 else -1
+                if pre_last_letter >= 0:
+                    ncn = calc_formulas(cn.replace(template.get('Name'), 
+                        resolve_parameter(text.replace('#prelastletter#', str(pre_last_letter)), [], context)))
+            else:
+                ncn = calc_formulas(cn.replace(template.get('Name'), 
+                    resolve_parameter(text, [], context)))
+        
+        # Add results if both nci and ncn are valid
+        if nci and ncn:
+            result.extend([nci, ncn])
+    
+    return result
 
 
 def main():
@@ -943,6 +1039,7 @@ def main():
             variant.set(attr, elem.get(attr))
 
         ET.dump(variant)
+        
 
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
